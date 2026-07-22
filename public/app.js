@@ -811,6 +811,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 socket = null;
             }
             
+            updateConnectionUI(false, false);
             localStorage.removeItem('ag_token');
             sessionStorage.clear();
             document.cookie = "ag_session=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";

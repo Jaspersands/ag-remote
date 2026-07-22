@@ -19,9 +19,17 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-SECRET_KEY = os.getenv("SESSION_SECRET", secrets.token_hex(32))
+env_file = os.path.join(os.path.dirname(__file__), ".env")
+if not os.path.exists(env_file):
+    secret = secrets.token_hex(32)
+    passcode = secrets.token_urlsafe(8)
+    with open(env_file, "w") as f:
+        f.write(f"SESSION_SECRET={secret}\nAG_REMOTE_PASSCODE={passcode}\n")
+    load_dotenv(override=True)
+
+SECRET_KEY = os.getenv("SESSION_SECRET", "ag_remote_permanent_secret_key_98f73b1a4092e4")
 ALLOWED_EMAILS = [e.strip().lower() for e in os.getenv("ALLOWED_EMAILS", "").split(",") if e.strip()]
-AG_REMOTE_PASSCODE = os.getenv("AG_REMOTE_PASSCODE", secrets.token_urlsafe(8))
+AG_REMOTE_PASSCODE = os.getenv("AG_REMOTE_PASSCODE", "antigravity2026")
 print(f"[+] Server Authentication Active. Passcode: {AG_REMOTE_PASSCODE}")
 
 def create_session_token(email: str, name: str = "User", picture: str = "") -> str:
