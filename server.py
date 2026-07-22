@@ -116,12 +116,14 @@ async def auth_passcode(request: Request, response: Response):
     )
     return {"success": True, "token": token, "user": {"email": email, "name": name, "picture": ""}}
 
+DEFAULT_GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "32555940559-bj70df22gfs71.apps.googleusercontent.com")
+
 @app.get("/api/auth/status")
 async def auth_status(request: Request):
     user = get_auth_user_from_request(request)
     if user:
         return {"authenticated": True, "user": {"email": user["email"], "name": user["name"], "picture": user.get("picture", "")}}
-    return {"authenticated": False, "google_client_id": os.getenv("GOOGLE_CLIENT_ID", "")}
+    return {"authenticated": False, "google_client_id": os.getenv("GOOGLE_CLIENT_ID", DEFAULT_GOOGLE_CLIENT_ID)}
 
 @app.post("/api/auth/config-google")
 async def config_google(request: Request):

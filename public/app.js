@@ -652,68 +652,23 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function initGoogleSignIn(clientId) {
         const btnContainer = document.getElementById('google-signin-btn');
-        const setupBtn = document.getElementById('setup-google-btn');
         const wrapper = document.getElementById('google-signin-wrapper');
-        const configBox = document.getElementById('google-config-box');
         
+        if (!clientId) return;
         if (wrapper) wrapper.style.display = 'flex';
-        
-        if (!clientId) {
-            if (btnContainer) btnContainer.classList.add('hidden');
-            if (setupBtn) setupBtn.classList.remove('hidden');
-            return;
-        }
-
-        if (setupBtn) setupBtn.classList.add('hidden');
-        if (configBox) configBox.classList.add('hidden');
-        if (btnContainer) btnContainer.classList.remove('hidden');
         
         if (window.google && google.accounts && google.accounts.id) {
             google.accounts.id.initialize({
                 client_id: clientId,
-                callback: handleGoogleCredentialResponse
+                callback: handleGoogleCredentialResponse,
+                auto_select: false
             });
             google.accounts.id.renderButton(
                 btnContainer,
-                { theme: 'outline', size: 'large', type: 'standard', shape: 'pill' }
+                { theme: 'outline', size: 'large', type: 'standard', shape: 'pill', width: 280 }
             );
+            google.accounts.id.prompt();
         }
-    }
-
-    const setupGoogleBtn = document.getElementById('setup-google-btn');
-    const googleConfigBox = document.getElementById('google-config-box');
-    const googleConfigForm = document.getElementById('google-config-form');
-    const googleClientIdInput = document.getElementById('google-client-id-input');
-
-    if (setupGoogleBtn) {
-        setupGoogleBtn.addEventListener('click', () => {
-            if (googleConfigBox) {
-                googleConfigBox.classList.toggle('hidden');
-            }
-        });
-    }
-
-    if (googleConfigForm) {
-        googleConfigForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const clientId = googleClientIdInput.value.trim();
-            if (!clientId) return;
-
-            try {
-                const resp = await fetch('/api/auth/config-google', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ google_client_id: clientId })
-                });
-                const data = await resp.json();
-                if (!resp.ok || !data.success) {
-                    throw new Error(data.detail || 'Failed to save Google Client ID');
-                }
-                initGoogleSignIn(data.google_client_id);
-            } catch (err) {
-                showAuthError(err.message);
-            }
-        });
     }
 
     async function handleGoogleCredentialResponse(response) {
