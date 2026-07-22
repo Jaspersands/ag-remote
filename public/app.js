@@ -574,7 +574,12 @@ document.addEventListener('DOMContentLoaded', () => {
         showFileContent('Loading...', 'Fetching file contents...', false);
         try {
             const urlParams = new URLSearchParams(params).toString();
-            const resp = await fetch(`${endpoint}${urlParams ? '?' + urlParams : ''}`);
+            const token = localStorage.getItem('ag_token') || '';
+            const headers = {};
+            if (token) {
+                headers['Authorization'] = `Bearer ${token}`;
+            }
+            const resp = await fetch(`${endpoint}${urlParams ? '?' + urlParams : ''}`, { headers });
             if (!resp.ok) {
                 const data = await resp.json();
                 throw new Error(data.detail || 'Failed to load file');
@@ -592,6 +597,37 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (err) {
             showFileContent('Error loading file', err.message, false);
         }
+    }
+
+    function clearAppUI() {
+        if (chatMessages) {
+            chatMessages.innerHTML = '';
+        }
+        if (projectsList) {
+            projectsList.innerHTML = '';
+        }
+        if (conversationsList) {
+            conversationsList.innerHTML = '';
+        }
+        const fileDrawer = document.getElementById('file-drawer');
+        if (fileDrawer) {
+            fileDrawer.classList.add('hidden');
+        }
+        const drawerContent = document.getElementById('drawer-content');
+        if (drawerContent) {
+            drawerContent.innerHTML = '';
+        }
+        const convoTitle = document.getElementById('convo-title');
+        if (convoTitle) {
+            convoTitle.innerText = 'Antigravity Remote';
+        }
+        if (chatInput) {
+            chatInput.value = '';
+        }
+        updateConnectionUI(false, false);
+        currentConvoId = null;
+        expandedFilesState = {};
+        thinkingExpandedState = {};
     }
 
     // Auth DOM Elements
@@ -639,17 +675,24 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function checkAuthStatus() {
         try {
-            const resp = await fetch('/api/auth/status');
+            const token = localStorage.getItem('ag_token') || '';
+            const headers = {};
+            if (token) {
+                headers['Authorization'] = `Bearer ${token}`;
+            }
+            const resp = await fetch('/api/auth/status', { headers });
             const data = await resp.json();
             if (data.authenticated && data.user) {
                 renderUserProfile(data.user);
                 connectWebSocket();
             } else {
+                localStorage.removeItem('ag_token');
+                clearAppUI();
                 renderUserProfile(null);
-                initGoogleSignIn(data.google_client_id);
             }
         } catch (err) {
             console.error('Auth check error:', err);
+            clearAppUI();
             renderUserProfile(null);
         }
     }
@@ -749,15 +792,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (logoutBtn) {
         logoutBtn.addEventListener('click', async () => {
+            const token = localStorage.getItem('ag_token') || '';
+            const headers = {};
+            if (token) {
+                headers['Authorization'] = `Bearer ${token}`;
+            }
             try {
-                await fetch('/api/auth/logout', { method: 'POST' });
+                await fetch('/api/auth/logout', { method: 'POST', headers });
             } catch (err) {}
             localStorage.removeItem('ag_token');
             if (socket) {
-                socket.close();
+                try { socket.close(); } catch (e) {}
+                socket = null;
             }
+            clearAppUI();
             renderUserProfile(null);
-            checkAuthStatus();
         });
     }
 
