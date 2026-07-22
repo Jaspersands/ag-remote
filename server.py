@@ -57,29 +57,26 @@ def get_auth_user_from_request(request: Request):
 
 app = FastAPI()
 
-@app.post("/api/auth/google")
-async def auth_google(request: Request, response: Response):
+@app.post("/api/auth/google/token")
+async def auth_google_token(request: Request, response: Response):
     data = await request.json()
-    credential = data.get("credential")
-    if not credential:
-        raise HTTPException(status_code=400, detail="Missing credential")
+    access_token = data.get("access_token")
+    if not access_token:
+        raise HTTPException(status_code=400, detail="Missing access_token")
         
     try:
-        from google.oauth2 import id_token
-        from google.auth.transport import requests as google_requests
+        req = urllib.request.Request("https://www.googleapis.com/oauth2/v3/userinfo")
+        req.add_header("Authorization", f"Bearer {access_token}")
+        with urllib.request.urlopen(req) as resp:
+            user_info = json.loads(resp.read().decode())
+            
+        email = user_info.get("email", "")
+        name = user_info.get("name", email.split("@")[0] if email else "Google User")
+        picture = user_info.get("picture", "")
         
-        client_id = os.getenv("GOOGLE_CLIENT_ID") or None
-        id_info = id_token.verify_oauth2_token(
-            credential, 
-            google_requests.Request(), 
-            client_id,
-            clock_skew_in_seconds=10
-        )
-        
-        email = id_info.get("email", "")
-        name = id_info.get("name", "Google User")
-        picture = id_info.get("picture", "")
-        
+        if not email:
+            raise HTTPException(status_code=401, detail="Could not retrieve email from Google")
+            
         if not is_email_allowed(email):
             raise HTTPException(status_code=403, detail=f"Access denied for email: {email}")
             
@@ -96,6 +93,59 @@ async def auth_google(request: Request, response: Response):
         raise
     except Exception as e:
         raise HTTPException(status_code=401, detail=f"Google authentication failed: {str(e)}")
+
+@app.get("/api/auth/google/callback", response_class=HTMLResponse)
+async def google_callback():
+    html_content = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Authenticating...</title>
+        <style>
+            body { background: #0f172a; color: #f8fafc; font-family: system-ui, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+            .card { background: #1e293b; padding: 24px; border-radius: 12px; text-align: center; }
+            .spinner { border: 3px solid rgba(255,255,255,0.1); border-top-color: #38bdf8; border-radius: 50%; width: 24px; height: 24px; animation: spin 1s infinite linear; margin: 12px auto; }
+            @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        </style>
+    </head>
+    <body>
+        <div class="card">
+            <div class="spinner"></div>
+            <p>Verifying Google Login...</p>
+        </div>
+        <script>
+            (async () => {
+                const hash = window.location.hash.substring(1);
+                const params = new URLSearchParams(hash);
+                const accessToken = params.get('access_token');
+                
+                if (accessToken) {
+                    try {
+                        const resp = await fetch('/api/auth/google/token', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ access_token: accessToken })
+                        });
+                        const data = await resp.json();
+                        if (resp.ok && data.success) {
+                            if (window.opener) {
+                                window.opener.postMessage({ type: 'GOOGLE_AUTH_SUCCESS', user: data.user }, '*');
+                            }
+                            window.close();
+                            return;
+                        }
+                    } catch (e) {}
+                }
+                if (window.opener) {
+                    window.opener.postMessage({ type: 'GOOGLE_AUTH_ERROR', error: 'Authentication failed' }, '*');
+                }
+                window.close();
+            })();
+        </script>
+    </body>
+    </html>
+    """
+    return HTMLResponse(content=html_content)
 
 @app.post("/api/auth/passcode")
 async def auth_passcode(request: Request, response: Response):

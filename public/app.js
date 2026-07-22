@@ -650,26 +650,32 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    function initGoogleSignIn(clientId) {
-        const btnContainer = document.getElementById('google-signin-btn');
-        const wrapper = document.getElementById('google-signin-wrapper');
-        
-        if (!clientId) return;
-        if (wrapper) wrapper.style.display = 'flex';
-        
-        if (window.google && google.accounts && google.accounts.id) {
-            google.accounts.id.initialize({
-                client_id: clientId,
-                callback: handleGoogleCredentialResponse,
-                auto_select: false
-            });
-            google.accounts.id.renderButton(
-                btnContainer,
-                { theme: 'outline', size: 'large', type: 'standard', shape: 'pill', width: 280 }
-            );
-            google.accounts.id.prompt();
-        }
+    const googleLoginBtn = document.getElementById('google-login-btn');
+    if (googleLoginBtn) {
+        googleLoginBtn.addEventListener('click', () => {
+            hideAuthError();
+            const clientId = "32555940559.apps.googleusercontent.com";
+            const redirectUri = window.location.origin + "/api/auth/google/callback";
+            const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token&scope=${encodeURIComponent('openid email profile')}&prompt=select`;
+            
+            const width = 500;
+            const height = 600;
+            const left = (window.screen.width - width) / 2;
+            const top = (window.screen.height - height) / 2;
+            
+            window.open(authUrl, 'GoogleAuthPopup', `width=${width},height=${height},top=${top},left=${left},scrollbars=yes`);
+        });
     }
+
+    window.addEventListener('message', (event) => {
+        if (event.data && event.data.type === 'GOOGLE_AUTH_SUCCESS') {
+            hideAuthError();
+            renderUserProfile(event.data.user);
+            connectWebSocket();
+        } else if (event.data && event.data.type === 'GOOGLE_AUTH_ERROR') {
+            showAuthError(event.data.error || 'Google Login failed');
+        }
+    });
 
     async function handleGoogleCredentialResponse(response) {
         hideAuthError();
