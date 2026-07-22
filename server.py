@@ -123,6 +123,39 @@ async def auth_status(request: Request):
         return {"authenticated": True, "user": {"email": user["email"], "name": user["name"], "picture": user.get("picture", "")}}
     return {"authenticated": False, "google_client_id": os.getenv("GOOGLE_CLIENT_ID", "")}
 
+@app.post("/api/auth/config-google")
+async def config_google(request: Request):
+    data = await request.json()
+    client_id = data.get("google_client_id", "").strip()
+    if not client_id:
+        raise HTTPException(status_code=400, detail="Missing Google Client ID")
+        
+    os.environ["GOOGLE_CLIENT_ID"] = client_id
+    
+    # Save to .env file
+    env_path = ".env"
+    lines = []
+    if os.path.exists(env_path):
+        with open(env_path, "r") as f:
+            lines = f.readlines()
+            
+    updated = False
+    new_lines = []
+    for line in lines:
+        if line.startswith("GOOGLE_CLIENT_ID="):
+            new_lines.append(f"GOOGLE_CLIENT_ID={client_id}\n")
+            updated = True
+        else:
+            new_lines.append(line)
+            
+    if not updated:
+        new_lines.append(f"GOOGLE_CLIENT_ID={client_id}\n")
+        
+    with open(env_path, "w") as f:
+        f.writelines(new_lines)
+        
+    return {"success": True, "google_client_id": client_id}
+
 @app.post("/api/auth/logout")
 async def auth_logout(response: Response):
     response.delete_cookie("ag_session")

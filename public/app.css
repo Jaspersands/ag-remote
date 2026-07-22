@@ -1275,14 +1275,63 @@ body, html {
     border-color: var(--accent-cyan);
 }
 
-.auth-error {
-    margin-top: 14px;
-    padding: 8px 12px;
-    background: rgba(239, 68, 68, 0.1);
-    border: 1px solid rgba(239, 68, 68, 0.3);
-    color: #f87171;
-    font-size: 0.8rem;
-    border-radius: 8px;
+.google-auth-btn {
     width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    padding: 10px 16px;
+    border-radius: 20px;
+    font-size: 0.9rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.google-auth-btn:hover {
+    background-color: rgba(255, 255, 255, 0.08);
+    border-color: var(--accent-cyan);
+}
+
+.google-config-box {
+    width: 100%;
+    background: var(--bg-surface);
+    border: 1px dashed var(--border-color);
+    border-radius: 12px;
+    padding: 14px;
+    margin-bottom: 12px;
+    text-align: left;
+}
+
+.config-help-text {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+    line-height: 1.4;
+}
+
+.config-form {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.config-form input[type="text"] {
+    width: 100%;
+    background: var(--bg-surface-elevated);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    padding: 8px 10px;
+    border-radius: 8px;
+    font-size: 0.8rem;
+    outline: none;
+}
+
+.config-form input[type="text"]:focus {
+    border-color: var(--accent-cyan);
 }
 
