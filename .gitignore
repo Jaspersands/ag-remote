@@ -1,0 +1,5 @@
+__pycache__/
+*.py[cod]
+*$py.class
+public/qr.png
+.DS_Store

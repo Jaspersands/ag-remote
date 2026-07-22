@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AG-Remote — Antigravity Client</title>
+    <meta name="description" content="Remote supervisor and controller for Google Antigravity.">
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Stylesheet -->
+    <link rel="stylesheet" href="app.css">
+</head>
+<body>
+    <!-- App Container -->
+    <div id="app">
+        <!-- Sidebar Overlay (mobile slide drawer) -->
+        <div id="sidebar-overlay" class="overlay hidden"></div>
+        
+        <!-- Sidebar Drawer -->
+        <aside id="sidebar" class="sidebar closed">
+            <div class="sidebar-header">
+                <h2>Antigravity App</h2>
+                <button id="close-sidebar" class="btn-icon" aria-label="Close menu">&times;</button>
+            </div>
+            
+            <div class="sidebar-content">
+                <button id="new-chat-btn" class="btn btn-primary btn-full">
+                    <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                    New Conversation
+                </button>
+                
+                <div class="sidebar-section">
+                    <h3>Projects</h3>
+                    <ul id="project-list" class="list-container">
+                        <!-- Projects load dynamically -->
+                    </ul>
+                </div>
+                
+                <div id="general-convo-section" class="sidebar-section">
+                    <h3>Conversations</h3>
+                    <ul id="convo-list" class="list-container">
+                        <!-- Conversations load dynamically -->
+                    </ul>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Chat Canvas -->
+        <main id="chat-canvas">
+            <!-- Header -->
+            <header id="main-header">
+                <div class="header-left">
+                    <button id="open-sidebar" class="btn-icon" aria-label="Open menu">
+                        <svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2" fill="none"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+                    </button>
+                    <div class="header-titles">
+                        <h1 id="active-project-title">No Project</h1>
+                        <span id="active-convo-title">No Conversation</span>
+                    </div>
+                </div>
+                
+                <div class="header-right">
+                    <div id="connection-status" class="status-badge disconnected">
+                        <span class="status-dot"></span>
+                        <span id="status-text">Disconnected</span>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Messages Pane -->
+            <section id="messages-pane">
+                <div id="messages-list">
+                    <!-- Dynamic chat messages go here -->
+                    <div class="empty-state">
+                        <div class="empty-icon">🪐</div>
+                        <h2>AG-Remote</h2>
+                        <p>Open the Antigravity desktop app to connect and start managing your workspace remotely.</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Bottom Tool Approval Bar (Stays pinned when tool is pending) -->
+            <section id="tool-bar" class="hidden">
+                <div class="tool-card">
+                    <div class="tool-card-header">
+                        <div class="tool-badge">🛡️ Tool Execution Pending</div>
+                    </div>
+                    <div class="tool-card-content">
+                        <pre id="tool-details-text"></pre>
+                    </div>
+                    <div class="tool-card-actions">
+                        <button id="reject-tool-btn" class="btn btn-danger">Cancel</button>
+                        <button id="approve-tool-btn" class="btn btn-success">Proceed</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Input Area -->
+            <footer id="input-area">
+                <form id="chat-form">
+                    <input type="text" id="chat-input" placeholder="Ask anything..." autocomplete="off" disabled>
+                    <button type="submit" id="send-btn" class="btn-circle btn-primary" disabled aria-label="Send">
+                        <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2.5" fill="none"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+                    </button>
+                </form>
+            </footer>
+        </main>
+    </div>
+    <!-- File Viewer Modal -->
+    <div id="file-viewer-modal" class="modal hidden">
+        <div class="modal-backdrop"></div>
+        <div class="modal-container">
+            <div class="modal-header">
+                <span id="file-viewer-title">File content</span>
+                <button id="close-file-viewer" aria-label="Close modal">
+                    <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2.5" fill="none"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div id="file-viewer-content"></div>
+            </div>
+        </div>
+    </div>
+    <!-- Script -->
+    <script src="app.js"></script>
+</body>
+</html>
