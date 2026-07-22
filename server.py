@@ -263,7 +263,7 @@ async def config_google(request: Request):
 
 @app.post("/api/auth/logout")
 async def auth_logout(response: Response):
-    response.delete_cookie("ag_session")
+    response.delete_cookie(key="ag_session", path="/")
     return {"success": True}
 
 @app.get("/symbols-icons/{path:path}")

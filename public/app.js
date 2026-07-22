@@ -800,13 +800,19 @@ document.addEventListener('DOMContentLoaded', () => {
             try {
                 await fetch('/api/auth/logout', { method: 'POST', headers });
             } catch (err) {}
+            
             localStorage.removeItem('ag_token');
+            sessionStorage.clear();
+            document.cookie = "ag_session=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+            
             if (socket) {
                 try { socket.close(); } catch (e) {}
                 socket = null;
             }
+            
             clearAppUI();
             renderUserProfile(null);
+            window.location.href = '/';
         });
     }
 
