@@ -61,7 +61,10 @@ document.addEventListener('DOMContentLoaded', () => {
         
         console.log(`[Connecting to AG-Remote WebSocket: ${wsUrl}]`);
         if (socket) {
-            try { socket.close(); } catch (e) {}
+            try { 
+                socket.onclose = null;
+                socket.close(); 
+            } catch (e) {}
         }
         socket = new WebSocket(wsUrl);
         
@@ -70,6 +73,7 @@ document.addEventListener('DOMContentLoaded', () => {
         };
         
         socket.onclose = () => {
+            if (isLoggingOut) return;
             console.log('[WebSocket connection closed. Reconnecting in 3 seconds...]');
             updateConnectionUI(false, false);
             setTimeout(connectWebSocket, 3000);
@@ -792,27 +796,32 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (logoutBtn) {
         logoutBtn.addEventListener('click', async () => {
+            isLoggingOut = true;
             const token = localStorage.getItem('ag_token') || '';
             const headers = {};
             if (token) {
                 headers['Authorization'] = `Bearer ${token}`;
             }
-            try {
-                await fetch('/api/auth/logout', { method: 'POST', headers });
-            } catch (err) {}
+
+            if (socket) {
+                try {
+                    socket.onclose = null;
+                    socket.close();
+                } catch (e) {}
+                socket = null;
+            }
             
             localStorage.removeItem('ag_token');
             sessionStorage.clear();
             document.cookie = "ag_session=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
-            
-            if (socket) {
-                try { socket.close(); } catch (e) {}
-                socket = null;
-            }
+
+            try {
+                await fetch('/api/auth/logout', { method: 'POST', headers });
+            } catch (err) {}
             
             clearAppUI();
             renderUserProfile(null);
-            window.location.href = '/';
+            isLoggingOut = false;
         });
     }
 
