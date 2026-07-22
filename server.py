@@ -47,7 +47,8 @@ def verify_session_token(token: str):
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
         return payload
-    except Exception:
+    except Exception as e:
+        print(f"[-] Token verification failed: {e}")
         return None
 
 def is_email_allowed(email: str) -> bool:

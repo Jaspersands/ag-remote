@@ -671,9 +671,11 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             userProfileBadge.classList.remove('hidden');
             authLockScreen.classList.add('hidden');
+            authLockScreen.style.display = 'none';
         } else {
             userProfileBadge.classList.add('hidden');
             authLockScreen.classList.remove('hidden');
+            authLockScreen.style.display = 'flex';
         }
     }
 
