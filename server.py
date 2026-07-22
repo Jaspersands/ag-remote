@@ -138,7 +138,7 @@ async def google_callback(request: Request, response: Response, code: str = None
                     <body>
                         <script>
                             if (window.opener) {{
-                                window.opener.postMessage({{ type: 'GOOGLE_AUTH_SUCCESS', user: {user_json} }}, '*');
+                                window.opener.postMessage({{ type: 'GOOGLE_AUTH_SUCCESS', token: '{session_token}', user: {user_json} }}, '*');
                             }}
                             window.close();
                         </script>
@@ -822,18 +822,24 @@ async def cdp_monitor_task():
             await broadcast_state()
             await asyncio.sleep(2)
 
-# Broadcast the scraped state to all connected iPhone WebSocket clients
+# Broadcast the scraped state to all connected WebSocket clients
 async def broadcast_state():
+    for email, room in list(relay_manager.rooms.items()):
+        if not room.get("agent_ws"):
+            room["state"].update(global_state.app_state)
+            await broadcast_room_state(email)
+
     if not global_state.ws_clients:
         return
     data = json.dumps(global_state.app_state)
     disconnected = set()
-    for client in global_state.ws_clients:
+    for client in list(global_state.ws_clients):
         try:
             await client.send_text(data)
         except Exception:
             disconnected.add(client)
-    global_state.ws_clients.difference_update(disconnected)
+    for client in disconnected:
+        global_state.ws_clients.remove(client)
 
 # Execute custom JS actions on the page
 async def execute_action(js_code: str):
@@ -1143,6 +1149,9 @@ async def websocket_client(websocket: WebSocket):
     room["client_wss"].add(websocket)
     print(f"[+] Web client connected for account: {email} ({websocket.client})")
     
+    if not room.get("agent_ws"):
+        room["state"].update(global_state.app_state)
+        
     await websocket.send_text(json.dumps(room["state"]))
     
     try:

@@ -56,9 +56,13 @@ document.addEventListener('DOMContentLoaded', () => {
     // Connect to WebSocket Server
     function connectWebSocket() {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${protocol}//${window.location.host}/ws`;
+        const token = localStorage.getItem('ag_token') || '';
+        const wsUrl = `${protocol}//${window.location.host}/ws?token=${encodeURIComponent(token)}`;
         
         console.log(`[Connecting to AG-Remote WebSocket: ${wsUrl}]`);
+        if (socket) {
+            try { socket.close(); } catch (e) {}
+        }
         socket = new WebSocket(wsUrl);
         
         socket.onopen = () => {
@@ -670,6 +674,9 @@ document.addEventListener('DOMContentLoaded', () => {
     window.addEventListener('message', (event) => {
         if (event.data && event.data.type === 'GOOGLE_AUTH_SUCCESS') {
             hideAuthError();
+            if (event.data.token) {
+                localStorage.setItem('ag_token', event.data.token);
+            }
             renderUserProfile(event.data.user);
             connectWebSocket();
         } else if (event.data && event.data.type === 'GOOGLE_AUTH_ERROR') {
@@ -694,6 +701,9 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             if (!resp.ok || !data || !data.success) {
                 throw new Error((data && data.detail) || 'Google Authentication failed');
+            }
+            if (data.token) {
+                localStorage.setItem('ag_token', data.token);
             }
             renderUserProfile(data.user);
             connectWebSocket();
@@ -725,6 +735,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (!resp.ok || !data || !data.success) {
                     throw new Error((data && data.detail) || 'Invalid passcode');
                 }
+                if (data.token) {
+                    localStorage.setItem('ag_token', data.token);
+                }
                 passcodeInput.value = '';
                 renderUserProfile(data.user);
                 connectWebSocket();
@@ -739,6 +752,7 @@ document.addEventListener('DOMContentLoaded', () => {
             try {
                 await fetch('/api/auth/logout', { method: 'POST' });
             } catch (err) {}
+            localStorage.removeItem('ag_token');
             if (socket) {
                 socket.close();
             }
