@@ -590,6 +590,146 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // Start WebSocket Connection
-    connectWebSocket();
+    // Auth DOM Elements
+    const authLockScreen = document.getElementById('auth-lock-screen');
+    const passcodeForm = document.getElementById('passcode-form');
+    const passcodeInput = document.getElementById('passcode-input');
+    const authErrorMsg = document.getElementById('auth-error-msg');
+    const userProfileBadge = document.getElementById('user-profile-badge');
+    const userAvatar = document.getElementById('user-avatar');
+    const userEmailText = document.getElementById('user-email-text');
+    const logoutBtn = document.getElementById('logout-btn');
+
+    let currentUser = null;
+
+    function showAuthError(msg) {
+        if (authErrorMsg) {
+            authErrorMsg.innerText = msg;
+            authErrorMsg.classList.remove('hidden');
+        }
+    }
+
+    function hideAuthError() {
+        if (authErrorMsg) {
+            authErrorMsg.classList.add('hidden');
+        }
+    }
+
+    function renderUserProfile(user) {
+        currentUser = user;
+        if (user) {
+            userEmailText.innerText = user.email || 'User';
+            if (user.picture) {
+                userAvatar.src = user.picture;
+                userAvatar.style.display = 'block';
+            } else {
+                userAvatar.style.display = 'none';
+            }
+            userProfileBadge.classList.remove('hidden');
+            authLockScreen.classList.add('hidden');
+        } else {
+            userProfileBadge.classList.add('hidden');
+            authLockScreen.classList.remove('hidden');
+        }
+    }
+
+    async function checkAuthStatus() {
+        try {
+            const resp = await fetch('/api/auth/status');
+            const data = await resp.json();
+            if (data.authenticated && data.user) {
+                renderUserProfile(data.user);
+                connectWebSocket();
+            } else {
+                renderUserProfile(null);
+                initGoogleSignIn(data.google_client_id);
+            }
+        } catch (err) {
+            console.error('Auth check error:', err);
+            renderUserProfile(null);
+        }
+    }
+
+    function initGoogleSignIn(clientId) {
+        const btnContainer = document.getElementById('google-signin-btn');
+        const wrapper = document.getElementById('google-signin-wrapper');
+        
+        if (!clientId) {
+            if (wrapper) wrapper.style.display = 'none';
+            return;
+        }
+        
+        if (wrapper) wrapper.style.display = 'flex';
+        if (window.google && google.accounts && google.accounts.id) {
+            google.accounts.id.initialize({
+                client_id: clientId,
+                callback: handleGoogleCredentialResponse
+            });
+            google.accounts.id.renderButton(
+                btnContainer,
+                { theme: 'outline', size: 'large', type: 'standard', shape: 'pill' }
+            );
+        }
+    }
+
+    async function handleGoogleCredentialResponse(response) {
+        hideAuthError();
+        try {
+            const resp = await fetch('/api/auth/google', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ credential: response.credential })
+            });
+            const data = await resp.json();
+            if (!resp.ok || !data.success) {
+                throw new Error(data.detail || 'Google Authentication failed');
+            }
+            renderUserProfile(data.user);
+            connectWebSocket();
+        } catch (err) {
+            showAuthError(err.message);
+        }
+    }
+
+    if (passcodeForm) {
+        passcodeForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            hideAuthError();
+            const passcode = passcodeInput.value.trim();
+            if (!passcode) return;
+
+            try {
+                const resp = await fetch('/api/auth/passcode', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ passcode })
+                });
+                const data = await resp.json();
+                if (!resp.ok || !data.success) {
+                    throw new Error(data.detail || 'Invalid passcode');
+                }
+                passcodeInput.value = '';
+                renderUserProfile(data.user);
+                connectWebSocket();
+            } catch (err) {
+                showAuthError(err.message);
+            }
+        });
+    }
+
+    if (logoutBtn) {
+        logoutBtn.addEventListener('click', async () => {
+            try {
+                await fetch('/api/auth/logout', { method: 'POST' });
+            } catch (err) {}
+            if (socket) {
+                socket.close();
+            }
+            renderUserProfile(null);
+            checkAuthStatus();
+        });
+    }
+
+    // Initialize Auth Check & App
+    checkAuthStatus();
 });

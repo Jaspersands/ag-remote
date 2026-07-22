@@ -9,6 +9,8 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Google Identity Services SDK -->
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
     <!-- Stylesheet -->
     <link rel="stylesheet" href="app.css">
 </head>
@@ -62,6 +64,11 @@
                 </div>
                 
                 <div class="header-right">
+                    <div id="user-profile-badge" class="user-badge hidden">
+                        <img id="user-avatar" class="user-avatar" src="" alt="Avatar" style="display:none;">
+                        <span id="user-email-text" class="user-email"></span>
+                        <button id="logout-btn" class="btn-xs btn-outline">Logout</button>
+                    </div>
                     <div id="connection-status" class="status-badge disconnected">
                         <span class="status-dot"></span>
                         <span id="status-text">Disconnected</span>
@@ -108,6 +115,30 @@
             </footer>
         </main>
     </div>
+
+    <!-- Auth Lock Screen Overlay -->
+    <div id="auth-lock-screen" class="auth-overlay">
+        <div class="auth-card">
+            <div class="auth-logo">🪐</div>
+            <h2>AG-Remote Authentication</h2>
+            <p class="auth-subtext">Sign in to access and control your Antigravity desktop workspace.</p>
+            
+            <!-- Google Sign-In Container -->
+            <div id="google-signin-wrapper" class="google-btn-wrapper">
+                <div id="google-signin-btn"></div>
+            </div>
+
+            <div class="auth-divider"><span>OR ACCESS KEY</span></div>
+            
+            <!-- Passcode Form -->
+            <form id="passcode-form" class="auth-form">
+                <input type="password" id="passcode-input" placeholder="Enter Access Key..." autocomplete="current-password" required>
+                <button type="submit" class="btn btn-primary btn-full">Unlock Dashboard</button>
+            </form>
+            <div id="auth-error-msg" class="auth-error hidden"></div>
+        </div>
+    </div>
+
     <!-- File Viewer Modal -->
     <div id="file-viewer-modal" class="modal hidden">
         <div class="modal-backdrop"></div>

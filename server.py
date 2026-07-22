@@ -12,10 +12,127 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Response, HTTPExcep
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
 
+import jwt
+import time
+import secrets
+from dotenv import load_dotenv
+
+load_dotenv()
+
+SECRET_KEY = os.getenv("SESSION_SECRET", secrets.token_hex(32))
+ALLOWED_EMAILS = [e.strip().lower() for e in os.getenv("ALLOWED_EMAILS", "").split(",") if e.strip()]
+AG_REMOTE_PASSCODE = os.getenv("AG_REMOTE_PASSCODE", secrets.token_urlsafe(8))
+print(f"[+] Server Authentication Active. Passcode: {AG_REMOTE_PASSCODE}")
+
+def create_session_token(email: str, name: str = "User", picture: str = "") -> str:
+    payload = {
+        "email": email.lower(),
+        "name": name,
+        "picture": picture,
+        "exp": int(time.time()) + (7 * 24 * 3600)
+    }
+    return jwt.encode(payload, SECRET_KEY, algorithm="HS256")
+
+def verify_session_token(token: str):
+    if not token:
+        return None
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+        return payload
+    except Exception:
+        return None
+
+def is_email_allowed(email: str) -> bool:
+    if not ALLOWED_EMAILS:
+        return True
+    return email.lower() in ALLOWED_EMAILS
+
+def get_auth_user_from_request(request: Response):
+    token = request.cookies.get("ag_session")
+    if not token:
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            token = auth_header.split(" ")[1]
+    return verify_session_token(token)
+
 app = FastAPI()
 
+@app.post("/api/auth/google")
+async def auth_google(request: Response):
+    data = await request.json()
+    credential = data.get("credential")
+    if not credential:
+        raise HTTPException(status_code=400, detail="Missing credential")
+        
+    try:
+        from google.oauth2 import id_token
+        from google.auth.transport import requests as google_requests
+        
+        client_id = os.getenv("GOOGLE_CLIENT_ID") or None
+        id_info = id_token.verify_oauth2_token(
+            credential, 
+            google_requests.Request(), 
+            client_id,
+            clock_skew_in_seconds=10
+        )
+        
+        email = id_info.get("email", "")
+        name = id_info.get("name", "Google User")
+        picture = id_info.get("picture", "")
+        
+        if not is_email_allowed(email):
+            raise HTTPException(status_code=403, detail=f"Access denied for email: {email}")
+            
+        token = create_session_token(email, name, picture)
+        response.set_cookie(
+            key="ag_session",
+            value=token,
+            httponly=True,
+            samesite="lax",
+            max_age=7 * 24 * 3600
+        )
+        return {"success": True, "token": token, "user": {"email": email, "name": name, "picture": picture}}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=401, detail=f"Google authentication failed: {str(e)}")
+
+@app.post("/api/auth/passcode")
+async def auth_passcode(request: Response):
+    data = await request.json()
+    passcode = data.get("passcode", "").strip()
+    if passcode != AG_REMOTE_PASSCODE:
+        raise HTTPException(status_code=401, detail="Invalid passcode")
+        
+    email = "owner@antigravity.local"
+    name = "Owner User"
+    token = create_session_token(email, name, "")
+    response.set_cookie(
+        key="ag_session",
+        value=token,
+        httponly=True,
+        samesite="lax",
+        max_age=7 * 24 * 3600
+    )
+    return {"success": True, "token": token, "user": {"email": email, "name": name, "picture": ""}}
+
+@app.get("/api/auth/status")
+async def auth_status(request: Response):
+    user = get_auth_user_from_request(request)
+    if user:
+        return {"authenticated": True, "user": {"email": user["email"], "name": user["name"], "picture": user.get("picture", "")}}
+    return {"authenticated": False, "google_client_id": os.getenv("GOOGLE_CLIENT_ID", "")}
+
+@app.post("/api/auth/logout")
+async def auth_logout(response: Response):
+    response.delete_cookie("ag_session")
+    return {"success": True}
+
 @app.get("/symbols-icons/{path:path}")
-async def proxy_symbols_icons(path: str):
+async def proxy_symbols_icons(path: str, request: Response):
+    if not get_auth_user_from_request(request):
+        raise HTTPException(status_code=401, detail="Authentication required")
+        
     url_str = global_state.app_state.get("url", "")
     if not url_str:
         return Response(status_code=503, content="App URL not discovered yet")
@@ -35,9 +152,9 @@ async def proxy_symbols_icons(path: str):
         ctx.verify_mode = ssl.CERT_NONE
         
         req = urllib.request.Request(url)
-        with urllib.request.urlopen(req, context=ctx) as response:
-            content = response.read()
-            media_type = response.headers.get("Content-Type", "image/svg+xml")
+        with urllib.request.urlopen(req, context=ctx) as response_obj:
+            content = response_obj.read()
+            media_type = response_obj.headers.get("Content-Type", "image/svg+xml")
             return Response(content=content, media_type=media_type)
     except Exception as e:
         return Response(status_code=500, content=str(e))
@@ -55,7 +172,10 @@ def resolve_workspace_file(filename: str):
     return None
 
 @app.get("/api/walkthrough")
-async def get_walkthrough():
+async def get_walkthrough(request: Response):
+    if not get_auth_user_from_request(request):
+        raise HTTPException(status_code=401, detail="Authentication required")
+        
     convo_id = get_conversation_id()
     if not convo_id:
         raise HTTPException(status_code=404, detail="No active conversation ID found")
@@ -72,7 +192,10 @@ async def get_walkthrough():
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/file")
-async def get_file_content(path: str = None, name: str = None):
+async def get_file_content(request: Response, path: str = None, name: str = None):
+    if not get_auth_user_from_request(request):
+        raise HTTPException(status_code=401, detail="Authentication required")
+        
     target_path = None
     if path:
         target_path = os.path.abspath(path)
@@ -802,9 +925,16 @@ async def action_click_artifact(article_index: int):
 # FastAPI WebSocket route for iPhone web client
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
+    token = websocket.cookies.get("ag_session") or websocket.query_params.get("token")
+    user = verify_session_token(token)
+    
+    if not user:
+        await websocket.close(code=4001, reason="Unauthorized")
+        return
+        
     await websocket.accept()
     global_state.ws_clients.add(websocket)
-    print(f"[+] WebSocket client connected: {websocket.client}")
+    print(f"[+] Authenticated WebSocket client connected: {user.get('email')} ({websocket.client})")
     
     # Send initial state
     await websocket.send_text(json.dumps(global_state.app_state))
