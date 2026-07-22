@@ -656,7 +656,7 @@ document.addEventListener('DOMContentLoaded', () => {
             hideAuthError();
             const clientId = "32555940559.apps.googleusercontent.com";
             const redirectUri = "http://localhost:8020/api/auth/google/callback";
-            const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token&scope=${encodeURIComponent('openid email profile')}`;
+            const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent('openid email profile')}`;
             
             const width = 500;
             const height = 600;

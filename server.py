@@ -95,7 +95,60 @@ async def auth_google_token(request: Request, response: Response):
         raise HTTPException(status_code=401, detail=f"Google authentication failed: {str(e)}")
 
 @app.get("/api/auth/google/callback", response_class=HTMLResponse)
-async def google_callback():
+async def google_callback(request: Request, response: Response, code: str = None):
+    if code:
+        try:
+            token_url = "https://oauth2.googleapis.com/token"
+            data = urllib.parse.urlencode({
+                "code": code,
+                "client_id": "32555940559.apps.googleusercontent.com",
+                "client_secret": "ZmssLNjJy2998hD4CTg2ejr2",
+                "redirect_uri": "http://localhost:8020/api/auth/google/callback",
+                "grant_type": "authorization_code"
+            }).encode('utf-8')
+            
+            req = urllib.request.Request(token_url, data=data, headers={"Content-Type": "application/x-www-form-urlencoded"})
+            with urllib.request.urlopen(req) as resp:
+                tokens = json.loads(resp.read().decode())
+                
+            access_token = tokens.get("access_token")
+            if access_token:
+                user_req = urllib.request.Request("https://www.googleapis.com/oauth2/v3/userinfo")
+                user_req.add_header("Authorization", f"Bearer {access_token}")
+                with urllib.request.urlopen(user_req) as user_resp:
+                    user_info = json.loads(user_resp.read().decode())
+                    
+                email = user_info.get("email", "")
+                name = user_info.get("name", email.split("@")[0] if email else "Google User")
+                picture = user_info.get("picture", "")
+                
+                if email and is_email_allowed(email):
+                    session_token = create_session_token(email, name, picture)
+                    response.set_cookie(
+                        key="ag_session",
+                        value=session_token,
+                        httponly=True,
+                        samesite="lax",
+                        max_age=7 * 24 * 3600
+                    )
+                    user_json = json.dumps({"email": email, "name": name, "picture": picture})
+                    html_content = f"""
+                    <!DOCTYPE html>
+                    <html>
+                    <body>
+                        <script>
+                            if (window.opener) {{
+                                window.opener.postMessage({{ type: 'GOOGLE_AUTH_SUCCESS', user: {user_json} }}, '*');
+                            }}
+                            window.close();
+                        </script>
+                    </body>
+                    </html>
+                    """
+                    return HTMLResponse(content=html_content)
+        except Exception as e:
+            print(f"[-] Google callback code exchange error: {e}")
+
     html_content = """
     <!DOCTYPE html>
     <html>
