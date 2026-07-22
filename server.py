@@ -822,12 +822,14 @@ async def cdp_monitor_task():
             await broadcast_state()
             await asyncio.sleep(2)
 
+OWNER_EMAIL = os.getenv("OWNER_EMAIL", "jaspersands02@gmail.com").lower()
+
 # Broadcast the scraped state to all connected WebSocket clients
 async def broadcast_state():
-    for email, room in list(relay_manager.rooms.items()):
-        if not room.get("agent_ws"):
-            room["state"].update(global_state.app_state)
-            await broadcast_room_state(email)
+    owner_room = relay_manager.get_room(OWNER_EMAIL)
+    if not owner_room.get("agent_ws"):
+        owner_room["state"].update(global_state.app_state)
+        await broadcast_room_state(OWNER_EMAIL)
 
     if not global_state.ws_clients:
         return
@@ -1149,7 +1151,7 @@ async def websocket_client(websocket: WebSocket):
     room["client_wss"].add(websocket)
     print(f"[+] Web client connected for account: {email} ({websocket.client})")
     
-    if not room.get("agent_ws"):
+    if email == OWNER_EMAIL and not room.get("agent_ws"):
         room["state"].update(global_state.app_state)
         
     await websocket.send_text(json.dumps(room["state"]))
@@ -1163,33 +1165,32 @@ async def websocket_client(websocket: WebSocket):
             agent_ws = room.get("agent_ws")
             if agent_ws:
                 await agent_ws.send_text(json.dumps(payload))
-            else:
+            elif email == OWNER_EMAIL and global_state.cdp_ws:
                 # Local fallback if server itself is running CDP locally for owner
-                if global_state.cdp_ws:
-                    action = payload.get("action")
-                    res = None
-                    if action == "send_message":
-                        res = await action_send_message(payload.get("text", ""))
-                    elif action == "approve_tool":
-                        res = await action_approve_tool()
-                    elif action == "reject_tool":
-                        res = await action_reject_tool()
-                    elif action == "new_conversation":
-                        res = await action_new_conversation()
-                    elif action == "select_project":
-                        res = await action_select_project(payload.get("name", ""))
-                    elif action == "select_conversation":
-                        res = await action_select_conversation(payload.get("id", ""))
-                    elif action == "click_files_changed":
-                        res = await action_click_files_changed(payload.get("articleIndex", 0))
-                    elif action == "click_review_button":
-                        res = await action_click_review_button(payload.get("articleIndex", 0))
-                    elif action == "click_file_row":
-                        res = await action_click_file_row(payload.get("name", ""), payload.get("path", ""))
-                    elif action == "click_scope_mention":
-                        res = await action_click_scope_mention(payload.get("articleIndex", 0), payload.get("filename", ""))
-                    elif action == "click_artifact":
-                        res = await action_click_artifact(payload.get("articleIndex", 0))
+                action = payload.get("action")
+                res = None
+                if action == "send_message":
+                    res = await action_send_message(payload.get("text", ""))
+                elif action == "approve_tool":
+                    res = await action_approve_tool()
+                elif action == "reject_tool":
+                    res = await action_reject_tool()
+                elif action == "new_conversation":
+                    res = await action_new_conversation()
+                elif action == "select_project":
+                    res = await action_select_project(payload.get("name", ""))
+                elif action == "select_conversation":
+                    res = await action_select_conversation(payload.get("id", ""))
+                elif action == "click_files_changed":
+                    res = await action_click_files_changed(payload.get("articleIndex", 0))
+                elif action == "click_review_button":
+                    res = await action_click_review_button(payload.get("articleIndex", 0))
+                elif action == "click_file_row":
+                    res = await action_click_file_row(payload.get("name", ""), payload.get("path", ""))
+                elif action == "click_scope_mention":
+                    res = await action_click_scope_mention(payload.get("articleIndex", 0), payload.get("filename", ""))
+                elif action == "click_artifact":
+                    res = await action_click_artifact(payload.get("articleIndex", 0))
     except WebSocketDisconnect:
         print(f"[-] Web client disconnected for account: {email}")
         if websocket in room["client_wss"]:
