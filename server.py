@@ -955,9 +955,75 @@ async def action_click_artifact(article_index: int):
     """
     return await execute_action(js)
 
-# FastAPI WebSocket route for iPhone web client
-@app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
+class AccountRelayManager:
+    def __init__(self):
+        self.rooms = {}
+
+    def get_room(self, email: str):
+        email = email.lower()
+        if email not in self.rooms:
+            self.rooms[email] = {
+                "agent_ws": None,
+                "client_wss": set(),
+                "state": {
+                    "connected": False,
+                    "url": "",
+                    "title": "",
+                    "projects": [],
+                    "conversations": [],
+                    "messages": [],
+                    "pending_tool": None
+                }
+            }
+        return self.rooms[email]
+
+relay_manager = AccountRelayManager()
+
+async def broadcast_room_state(email: str):
+    room = relay_manager.get_room(email)
+    state_json = json.dumps(room["state"])
+    dead_clients = set()
+    for ws in list(room["client_wss"]):
+        try:
+            await ws.send_text(state_json)
+        except Exception:
+            dead_clients.add(ws)
+    for ws in dead_clients:
+        room["client_wss"].remove(ws)
+
+@app.websocket("/ws/agent")
+async def websocket_agent(websocket: WebSocket, email: str = "jaspersands02@gmail.com"):
+    await websocket.accept()
+    email = email.lower()
+    room = relay_manager.get_room(email)
+    room["agent_ws"] = websocket
+    room["state"]["connected"] = True
+    print(f"[+] Local agent paired for account: {email}")
+    await broadcast_room_state(email)
+    
+    try:
+        while True:
+            data = await websocket.receive_text()
+            payload = json.loads(data)
+            msg_type = payload.get("type")
+            
+            if msg_type == "state_update":
+                room["state"].update(payload.get("state", {}))
+                room["state"]["connected"] = True
+                await broadcast_room_state(email)
+    except WebSocketDisconnect:
+        print(f"[-] Agent disconnected for account: {email}")
+        room["agent_ws"] = None
+        room["state"]["connected"] = False
+        await broadcast_room_state(email)
+    except Exception as e:
+        print(f"[-] Agent websocket error ({email}): {e}")
+        room["agent_ws"] = None
+        room["state"]["connected"] = False
+        await broadcast_room_state(email)
+
+@app.websocket("/ws/client")
+async def websocket_client(websocket: WebSocket):
     token = websocket.cookies.get("ag_session") or websocket.query_params.get("token")
     user = verify_session_token(token)
     
@@ -965,51 +1031,64 @@ async def websocket_endpoint(websocket: WebSocket):
         await websocket.close(code=4001, reason="Unauthorized")
         return
         
+    email = user.get("email", "").lower()
     await websocket.accept()
-    global_state.ws_clients.add(websocket)
-    print(f"[+] Authenticated WebSocket client connected: {user.get('email')} ({websocket.client})")
     
-    # Send initial state
-    await websocket.send_text(json.dumps(global_state.app_state))
+    room = relay_manager.get_room(email)
+    room["client_wss"].add(websocket)
+    print(f"[+] Web client connected for account: {email} ({websocket.client})")
+    
+    await websocket.send_text(json.dumps(room["state"]))
     
     try:
         while True:
             data = await websocket.receive_text()
             payload = json.loads(data)
-            action = payload.get("action")
             
-            print(f"[+] Received iPhone action: {action}")
-            res = None
-            if action == "send_message":
-                res = await action_send_message(payload.get("text", ""))
-            elif action == "approve_tool":
-                res = await action_approve_tool()
-            elif action == "reject_tool":
-                res = await action_reject_tool()
-            elif action == "new_conversation":
-                res = await action_new_conversation()
-            elif action == "select_project":
-                res = await action_select_project(payload.get("name", ""))
-            elif action == "select_conversation":
-                res = await action_select_conversation(payload.get("id", ""))
-            elif action == "click_files_changed":
-                res = await action_click_files_changed(payload.get("articleIndex", 0))
-            elif action == "click_review_button":
-                res = await action_click_review_button(payload.get("articleIndex", 0))
-            elif action == "click_file_row":
-                res = await action_click_file_row(payload.get("name", ""), payload.get("path", ""))
-            elif action == "click_scope_mention":
-                res = await action_click_scope_mention(payload.get("articleIndex", 0), payload.get("filename", ""))
-            elif action == "click_artifact":
-                res = await action_click_artifact(payload.get("articleIndex", 0))
-            print(f"[+] Action result: {res}")
+            # Relay action to the agent for this user's computer
+            agent_ws = room.get("agent_ws")
+            if agent_ws:
+                await agent_ws.send_text(json.dumps(payload))
+            else:
+                # Local fallback if server itself is running CDP locally for owner
+                if global_state.cdp_ws:
+                    action = payload.get("action")
+                    res = None
+                    if action == "send_message":
+                        res = await action_send_message(payload.get("text", ""))
+                    elif action == "approve_tool":
+                        res = await action_approve_tool()
+                    elif action == "reject_tool":
+                        res = await action_reject_tool()
+                    elif action == "new_conversation":
+                        res = await action_new_conversation()
+                    elif action == "select_project":
+                        res = await action_select_project(payload.get("name", ""))
+                    elif action == "select_conversation":
+                        res = await action_select_conversation(payload.get("id", ""))
+                    elif action == "click_files_changed":
+                        res = await action_click_files_changed(payload.get("articleIndex", 0))
+                    elif action == "click_review_button":
+                        res = await action_click_review_button(payload.get("articleIndex", 0))
+                    elif action == "click_file_row":
+                        res = await action_click_file_row(payload.get("name", ""), payload.get("path", ""))
+                    elif action == "click_scope_mention":
+                        res = await action_click_scope_mention(payload.get("articleIndex", 0), payload.get("filename", ""))
+                    elif action == "click_artifact":
+                        res = await action_click_artifact(payload.get("articleIndex", 0))
     except WebSocketDisconnect:
-        print(f"[-] WebSocket client disconnected: {websocket.client}")
-        global_state.ws_clients.remove(websocket)
+        print(f"[-] Web client disconnected for account: {email}")
+        if websocket in room["client_wss"]:
+            room["client_wss"].remove(websocket)
     except Exception as e:
-        print(f"[-] WebSocket error: {e}")
-        if websocket in global_state.ws_clients:
-            global_state.ws_clients.remove(websocket)
+        print(f"[-] Client websocket error ({email}): {e}")
+        if websocket in room["client_wss"]:
+            room["client_wss"].remove(websocket)
+
+# FastAPI WebSocket route for iPhone web client
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await websocket_client(websocket)
 
 # Start background monitoring task on FastAPI startup
 @app.on_event("startup")

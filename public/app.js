@@ -89,16 +89,16 @@ document.addEventListener('DOMContentLoaded', () => {
     function updateConnectionUI(serverConnected, appConnected) {
         if (serverConnected && appConnected) {
             connectionStatus.className = 'status-badge connected';
-            statusText.innerText = 'Online';
+            statusText.innerText = 'Computer Paired';
             chatInput.disabled = false;
             sendBtn.disabled = false;
             chatInput.placeholder = 'Ask anything...';
         } else {
             connectionStatus.className = 'status-badge disconnected';
-            statusText.innerText = serverConnected ? 'App Offline' : 'Disconnected';
+            statusText.innerText = serverConnected ? 'Computer Offline' : 'Disconnected';
             chatInput.disabled = true;
             sendBtn.disabled = true;
-            chatInput.placeholder = 'App offline. Open desktop app...';
+            chatInput.placeholder = serverConnected ? 'Run python3 agent.py on your computer to pair...' : 'Connecting to relay server...';
         }
     }
 
