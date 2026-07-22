@@ -680,9 +680,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ credential: response.credential })
             });
-            const data = await resp.json();
-            if (!resp.ok || !data.success) {
-                throw new Error(data.detail || 'Google Authentication failed');
+            let data = null;
+            try {
+                data = await resp.json();
+            } catch (e) {
+                const text = await resp.text().catch(() => '');
+                throw new Error(text || `Authentication error (${resp.status})`);
+            }
+            if (!resp.ok || !data || !data.success) {
+                throw new Error((data && data.detail) || 'Google Authentication failed');
             }
             renderUserProfile(data.user);
             connectWebSocket();
@@ -704,9 +710,15 @@ document.addEventListener('DOMContentLoaded', () => {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ passcode })
                 });
-                const data = await resp.json();
-                if (!resp.ok || !data.success) {
-                    throw new Error(data.detail || 'Invalid passcode');
+                let data = null;
+                try {
+                    data = await resp.json();
+                } catch (e) {
+                    const text = await resp.text().catch(() => '');
+                    throw new Error(text || `Authentication error (${resp.status})`);
+                }
+                if (!resp.ok || !data || !data.success) {
+                    throw new Error((data && data.detail) || 'Invalid passcode');
                 }
                 passcodeInput.value = '';
                 renderUserProfile(data.user);

@@ -8,7 +8,7 @@ import websockets
 import qrcode
 import io
 import ssl
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Response, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Response, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
 
@@ -47,7 +47,7 @@ def is_email_allowed(email: str) -> bool:
         return True
     return email.lower() in ALLOWED_EMAILS
 
-def get_auth_user_from_request(request: Response):
+def get_auth_user_from_request(request: Request):
     token = request.cookies.get("ag_session")
     if not token:
         auth_header = request.headers.get("Authorization", "")
@@ -58,7 +58,7 @@ def get_auth_user_from_request(request: Response):
 app = FastAPI()
 
 @app.post("/api/auth/google")
-async def auth_google(request: Response):
+async def auth_google(request: Request, response: Response):
     data = await request.json()
     credential = data.get("credential")
     if not credential:
@@ -98,7 +98,7 @@ async def auth_google(request: Response):
         raise HTTPException(status_code=401, detail=f"Google authentication failed: {str(e)}")
 
 @app.post("/api/auth/passcode")
-async def auth_passcode(request: Response):
+async def auth_passcode(request: Request, response: Response):
     data = await request.json()
     passcode = data.get("passcode", "").strip()
     if passcode != AG_REMOTE_PASSCODE:
@@ -117,7 +117,7 @@ async def auth_passcode(request: Response):
     return {"success": True, "token": token, "user": {"email": email, "name": name, "picture": ""}}
 
 @app.get("/api/auth/status")
-async def auth_status(request: Response):
+async def auth_status(request: Request):
     user = get_auth_user_from_request(request)
     if user:
         return {"authenticated": True, "user": {"email": user["email"], "name": user["name"], "picture": user.get("picture", "")}}
@@ -129,7 +129,7 @@ async def auth_logout(response: Response):
     return {"success": True}
 
 @app.get("/symbols-icons/{path:path}")
-async def proxy_symbols_icons(path: str, request: Response):
+async def proxy_symbols_icons(path: str, request: Request):
     if not get_auth_user_from_request(request):
         raise HTTPException(status_code=401, detail="Authentication required")
         
@@ -172,7 +172,7 @@ def resolve_workspace_file(filename: str):
     return None
 
 @app.get("/api/walkthrough")
-async def get_walkthrough(request: Response):
+async def get_walkthrough(request: Request):
     if not get_auth_user_from_request(request):
         raise HTTPException(status_code=401, detail="Authentication required")
         
@@ -192,7 +192,7 @@ async def get_walkthrough(request: Response):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/file")
-async def get_file_content(request: Response, path: str = None, name: str = None):
+async def get_file_content(request: Request, path: str = None, name: str = None):
     if not get_auth_user_from_request(request):
         raise HTTPException(status_code=401, detail="Authentication required")
         
