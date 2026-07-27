@@ -1043,40 +1043,15 @@ document.addEventListener('DOMContentLoaded', () => {
     if (googleLoginBtn) {
         googleLoginBtn.addEventListener('click', () => {
             hideAuthError();
-            
             const clientId = globalGoogleClientId || '367177401520-4jg61r571kgefpidfn19nff02qo8ik50.apps.googleusercontent.com';
+            const redirectUri = window.location.origin + '/api/auth/google/callback';
+            const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=openid%20email%20profile&access_type=offline&prompt=select_account`;
             
-            if (window.google && google.accounts && google.accounts.oauth2) {
-                const client = google.accounts.oauth2.initTokenClient({
-                    client_id: clientId,
-                    scope: 'openid email profile',
-                    callback: async (response) => {
-                        if (response && response.access_token) {
-                            try {
-                                const res = await fetch('/api/auth/google/token', {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({ access_token: response.access_token })
-                                });
-                                const data = await res.json();
-                                if (!res.ok || !data.success) {
-                                    throw new Error(data.detail || 'Google Login failed');
-                                }
-                                if (data.token) {
-                                    localStorage.setItem('ag_token', data.token);
-                                }
-                                renderUserProfile(data.user);
-                                connectWebSocket();
-                            } catch (err) {
-                                showAuthError(err.message);
-                            }
-                        }
-                    }
-                });
-                client.requestAccessToken();
-            } else {
-                showAuthError("Google Identity Services not loaded");
-            }
+            const width = 500;
+            const height = 600;
+            const left = window.screen.width / 2 - width / 2;
+            const top = window.screen.height / 2 - height / 2;
+            window.open(authUrl, 'Google Login', `width=${width},height=${height},top=${top},left=${left}`);
         });
     }
 
