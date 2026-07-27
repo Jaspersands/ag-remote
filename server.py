@@ -279,6 +279,236 @@ async def auth_logout(response: Response):
     response.delete_cookie(key="ag_session", path="/")
     return {"success": True}
 
+QUOTA_SCRAPER_JS = """
+(() => {
+    const results = { gemini: {}, claude_gpt: {}, error: null };
+    try {
+        const allEls = Array.from(document.querySelectorAll('*'));
+        
+        // Find elements with "refresh in" text (unique to quota section)
+        const refreshEls = allEls.filter(el => {
+            const t = (el.innerText || '').trim();
+            return t.match(/it will fully refresh in/i) && el.children.length < 4 && t.length < 300;
+        });
+        
+        // Find percentage elements
+        const pctEls = allEls.filter(el => {
+            const t = (el.innerText || '').trim();
+            return /^\\d{1,3}%$/.test(t);
+        }).map(el => el.innerText.trim());
+        
+        // Parse quota blocks — we know the order: Gemini weekly, Gemini 5hr, Claude weekly, Claude 5hr
+        const refreshTexts = refreshEls
+            .filter(el => /weekly limit|5-hour limit/i.test(el.innerText || ''))
+            .map(el => (el.innerText || '').trim().slice(0, 250));
+        
+        // Deduplicate
+        const unique = [...new Set(refreshTexts)];
+        
+        const geminiWeekly = unique.find(t => t.match(/Gemini/i) && t.match(/weekly/i));
+        const geminiFiveHr = unique.find(t => t.match(/Gemini/i) && t.match(/5-hour/i));
+        const claudeWeekly = unique.find(t => t.match(/Claude|GPT/i) && t.match(/weekly/i));
+        const claudeFiveHr = unique.find(t => t.match(/Claude|GPT/i) && t.match(/5-hour/i));
+        
+        // Fallback: use index order if group labels missing
+        const parseRefresh = (text) => {
+            if (!text) return null;
+            const m = text.match(/refresh in (.+?)\\./);
+            return m ? m[1].trim() : null;
+        };
+        
+        const uniquePcts = [...new Set(pctEls)];
+        
+        results.gemini = {
+            weekly_pct: uniquePcts[0] || null,
+            weekly_refresh: parseRefresh(geminiWeekly || unique[0]),
+            fivehr_pct: uniquePcts[1] || null,
+            fivehr_refresh: parseRefresh(geminiFiveHr || unique[1])
+        };
+        results.claude_gpt = {
+            weekly_pct: uniquePcts[2] || null,
+            weekly_refresh: parseRefresh(claudeWeekly || unique[2]),
+            fivehr_pct: uniquePcts[3] || null,
+            fivehr_refresh: parseRefresh(claudeFiveHr || unique[3])
+        };
+        
+        results.raw_pcts = uniquePcts;
+        results.raw_refreshes = unique;
+        
+    } catch(e) {
+        results.error = e.toString();
+    }
+    return results;
+})()
+"""
+
+MODEL_PICKER_JS = """
+(() => {
+    // Click the model selector button to open the picker
+    const btn = Array.from(document.querySelectorAll('button')).find(b => 
+        b.className && b.className.includes('cursor-pointer') &&
+        b.innerText && b.innerText.match(/Gemini|Claude|GPT|Sonnet|Flash|Pro/i) && 
+        b.innerText.length < 80
+    );
+    if (!btn) return { error: 'Model button not found', currentModel: null, models: [] };
+    
+    const currentModel = btn.innerText.trim();
+    btn.click();
+    return { opened: true, currentModel };
+})()
+"""
+
+MODELS_SCRAPER_JS = """
+(() => {
+    const allBtns = Array.from(document.querySelectorAll('button'));
+    const modelBtns = allBtns.filter(b => 
+        b.className && b.className.includes('main-row-trigger') &&
+        b.innerText && b.innerText.match(/Gemini|Claude|GPT|Sonnet|Flash|Pro|Qwen/i)
+    );
+    return modelBtns.map(b => b.innerText.trim().split('\\n')[0]);
+})()
+"""
+
+async def action_stop_generation():
+    js = """
+    (() => {
+        const allBtns = Array.from(document.querySelectorAll('button'));
+        const stopBtn = allBtns.find(b => {
+            const text = b.innerText.trim().toLowerCase();
+            return text === 'stop' || text === 'cancel';
+        });
+        if (stopBtn) {
+            stopBtn.click();
+            return { success: true };
+        }
+        return { error: "Stop button not found" };
+    })()
+    """
+    return await execute_action(js)
+
+# API action endpoints
+@app.post("/api/action")
+async def handle_action(request: Request):
+    user = get_auth_user_from_request(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+        
+    data = await request.json()
+    action = data.get("action")
+    
+    if action == "send_message":
+        text = data.get("text", "")
+        files = data.get("files", [])
+        if files:
+            await action_upload_files(files)
+            await asyncio.sleep(0.5)
+        res = await action_send_message(text)
+        return res
+    elif action == "new_conversation":
+        return await action_new_conversation()
+    elif action == "stop_generation":
+        return await action_stop_generation()
+
+@app.get("/api/quota")
+async def get_quota(request: Request):
+    user = get_auth_user_from_request(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    if not global_state.cdp_ws:
+        raise HTTPException(status_code=503, detail="Desktop app not connected")
+    
+    # Navigate to the quota page by adding URL params, then scrape
+    url = global_state.app_state.get("url", "")
+    if not url:
+        raise HTTPException(status_code=503, detail="No app URL available")
+    
+    # Add settingsOpen=true&settingsPage=modelQuota to trigger the quota panel
+    import re as re_mod
+    base = url.split('?')[0]
+    qs = url.split('?')[1] if '?' in url else ''
+    quota_url = f"{url}{'&' if qs else '?'}settingsOpen=true&settingsPage=modelQuota"
+    
+    # Navigate to quota page
+    await execute_action(f"window.location.href = '{quota_url}'")
+    await asyncio.sleep(1.2)
+    
+    # Scrape
+    data = await execute_action(QUOTA_SCRAPER_JS)
+    
+    # Navigate back to original URL
+    await execute_action(f"window.history.back()")
+    
+    return data or {"error": "Failed to scrape quota data"}
+
+@app.get("/api/models")
+async def get_models(request: Request):
+    user = get_auth_user_from_request(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    if not global_state.cdp_ws:
+        raise HTTPException(status_code=503, detail="Desktop app not connected")
+    
+    # Get current model
+    current_js = """
+    (() => {
+        const btn = Array.from(document.querySelectorAll('button')).find(b => 
+            b.className && b.className.includes('cursor-pointer') &&
+            b.innerText && b.innerText.match(/Gemini|Claude|GPT|Sonnet|Flash|Pro/i) && 
+            b.innerText.length < 80
+        );
+        return btn ? btn.innerText.trim() : null;
+    })()
+    """
+    current_model = await execute_action(current_js)
+    
+    # Open model picker
+    await execute_action(MODEL_PICKER_JS)
+    await asyncio.sleep(0.7)
+    
+    # Scrape available models
+    models = await execute_action(MODELS_SCRAPER_JS)
+    
+    # Close picker with Escape
+    await execute_action("document.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true, cancelable: true}))")
+    
+    return {"current": current_model, "models": models or []}
+
+@app.post("/api/models/switch")
+async def switch_model(request: Request):
+    user = get_auth_user_from_request(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    if not global_state.cdp_ws:
+        raise HTTPException(status_code=503, detail="Desktop app not connected")
+    
+    data = await request.json()
+    target_model = data.get("model", "").strip()
+    if not target_model:
+        raise HTTPException(status_code=400, detail="Missing model name")
+    
+    # Open model picker
+    await execute_action(MODEL_PICKER_JS)
+    await asyncio.sleep(0.7)
+    
+    # Click the target model button
+    escaped = target_model.replace("'", "\\'")
+    click_js = f"""
+    (() => {{
+        const allBtns = Array.from(document.querySelectorAll('button'));
+        const targetBtn = allBtns.find(b => 
+            b.className && b.className.includes('main-row-trigger') &&
+            b.innerText && b.innerText.trim().startsWith('{escaped}')
+        );
+        if (targetBtn) {{
+            targetBtn.click();
+            return {{ success: true, clicked: targetBtn.innerText.trim() }};
+        }}
+        return {{ success: false, error: 'Model not found: {escaped}' }};
+    }})()
+    """
+    result = await execute_action(click_js)
+    return result or {"success": False, "error": "Action failed"}
+
 @app.get("/symbols-icons/{path:path}")
 async def proxy_symbols_icons(path: str, request: Request):
     if not get_auth_user_from_request(request):
@@ -403,6 +633,36 @@ JS_SCRAPER = """
         const url = window.location.href;
         const title = document.title;
         
+        // 0. Detect Generating State & Queued Messages
+        const allBtns = Array.from(document.querySelectorAll('button'));
+        const stopBtn = allBtns.find(b => {
+            const text = b.innerText.trim().toLowerCase();
+            return text === 'stop' || text === 'cancel';
+        });
+        const is_generating = !!stopBtn;
+
+        const queued_messages = [];
+        const qHeader = Array.from(document.querySelectorAll('span, div, p')).find(el => el.innerText === 'Queued Messages' && el.children.length === 0);
+        if (qHeader) {
+            // Traverse up to find the container
+            const container = qHeader.closest('.flex-col');
+            if (container) {
+                // Find all the inner text nodes that are likely messages
+                // The structure is usually "Queued Messages" -> count -> "Sends after..." -> messages
+                const lines = container.innerText.split('\\n').map(l => l.trim()).filter(l => l);
+                let startIdx = lines.findIndex(l => l.includes('Sends after agent'));
+                if (startIdx !== -1) {
+                    for (let i = startIdx + 1; i < lines.length; i++) {
+                        const line = lines[i];
+                        if (line.includes('Ask anything') || line.includes('Gemini') || line.includes('Claude') || line.includes('GPT')) {
+                            break; // Reached the input area hints
+                        }
+                        queued_messages.push(line);
+                    }
+                }
+            }
+        }
+
         // 1. Scrape Sidebar Projects & Conversations
         const projects = [];
         const sections = document.querySelectorAll('.group\\\\/section');
@@ -537,7 +797,9 @@ JS_SCRAPER = """
             projects,
             conversations,
             messages,
-            pending_tool
+            pending_tool,
+            is_generating,
+            queued_messages
         };
     } catch (e) {
         return { error: e.toString() };

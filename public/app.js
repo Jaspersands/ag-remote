@@ -72,6 +72,34 @@ document.addEventListener('DOMContentLoaded', () => {
     closeSidebarBtn.addEventListener('click', closeSidebar);
     sidebarOverlay.addEventListener('click', closeSidebar);
 
+    // Initialize Models
+    async function fetchModels() {
+        try {
+            const resp = await fetch('/api/models');
+            const data = await resp.json();
+            if (data.models) {
+                if (data.current) currentModelName.innerText = data.current.name;
+                modelList.innerHTML = '';
+                data.models.forEach(model => {
+                    const li = document.createElement('li');
+                    li.innerText = model.name;
+                    li.addEventListener('click', () => {
+                        currentModelName.innerText = model.name;
+                        fetch('/api/models/switch', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('ag_token') || ''}` }, body: JSON.stringify({ model: model.id }) });
+                        modelDropdown.classList.add('hidden');
+                    });
+                    modelList.appendChild(li);
+                });
+            }
+        } catch (e) {
+            console.error('Failed to fetch models', e);
+        }
+    }
+
+    modelSelectorBtn.addEventListener('click', () => {
+        modelDropdown.classList.toggle('hidden');
+    });
+
     // Connect to WebSocket Server
     function connectWebSocket() {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -746,6 +774,12 @@ document.addEventListener('DOMContentLoaded', () => {
         renderAttachmentsPreview();
     });
 
+    // Stop action
+    stopBtn.addEventListener('click', () => {
+        hapticTap();
+        sendAction('stop_generation');
+    });
+
     // New chat action
     newChatBtn.addEventListener('click', () => {
         hapticTap();
@@ -975,6 +1009,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (data.authenticated && data.user) {
                 renderUserProfile(data.user);
                 connectWebSocket();
+                fetchModels();
             } else {
                 if (data.google_client_id) {
                     globalGoogleClientId = data.google_client_id;
@@ -1101,6 +1136,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 passcodeInput.value = '';
                 renderUserProfile(data.user);
                 connectWebSocket();
+                fetchModels();
             } catch (err) {
                 showAuthError(err.message);
             }
@@ -1186,8 +1222,12 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Global Settings Listeners & Usage Metrics Computation
-    function openGlobalSettingsModal() {
+    async function openGlobalSettingsModal() {
         if (!globalSettingsModal) return;
+
+        // Immediately update usage text to show loading...
+        document.getElementById('usage-weekly-tokens').innerText = "Loading from server...";
+        document.getElementById('usage-5hr-tokens').innerText = "Loading from server...";
 
         // Count projects and conversations from live state
         let projCount = 0;
@@ -1202,66 +1242,52 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
         const messageCount = messagesList ? messagesList.children.length : 0;
-
-        // Usage reset time calculations
-        // 5-hour window resets 5 hours after your first message in the window
-        // Weekly quota resets every Sunday at midnight UTC
-        const now = new Date();
         
-        // Weekly reset: next Sunday midnight UTC
-        const weeklyReset = new Date(now);
-        const daysUntilSunday = (7 - weeklyReset.getUTCDay()) % 7 || 7;
-        weeklyReset.setUTCDate(weeklyReset.getUTCDate() + daysUntilSunday);
-        weeklyReset.setUTCHours(0, 0, 0, 0);
-        const weeklyMs = weeklyReset - now;
-        const weeklyDays = Math.floor(weeklyMs / 86400000);
-        const weeklyHrs = Math.floor((weeklyMs % 86400000) / 3600000);
-        const weeklyResetStr = weeklyDays > 0 
-            ? `Resets in ${weeklyDays}d ${weeklyHrs}h (Sunday midnight UTC)`
-            : `Resets in ${weeklyHrs}h (Sunday midnight UTC)`;
-
-        // 5-hour rolling window calculation
-        // The window starts from the first message you send. If no message yet,
-        // fall back to session start time. We can't know the true start if the
-        // window began before this page loaded.
-        const windowStart = firstMessageTime || sessionStartTime || now;
-        const windowEnd = new Date(windowStart.getTime() + 5 * 3600 * 1000);
-        const msUntilReset = windowEnd - now;
-        
-        let fiveHrStr;
-        if (msUntilReset <= 0) {
-            fiveHrStr = 'Window has reset (no recent messages tracked)';
-        } else if (!firstMessageTime && !sessionStartTime) {
-            fiveHrStr = 'Unknown — send a message to start tracking';
-        } else {
-            const hrsLeft = Math.floor(msUntilReset / 3600000);
-            const minsLeft = Math.floor((msUntilReset % 3600000) / 60000);
-            const resetAtStr = windowEnd.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-            const startLabel = firstMessageTime ? 'first message' : 'session start';
-            fiveHrStr = hrsLeft > 0
-                ? `~${hrsLeft}h ${minsLeft}m left · resets at ${resetAtStr} (from ${startLabel})`
-                : `~${minsLeft}m left · resets at ${resetAtStr} (from ${startLabel})`;
+        // Fetch actual quota from backend
+        try {
+            const resp = await fetch('/api/quota');
+            const data = await resp.json();
+            
+            const weeklyEl = document.getElementById('usage-weekly-tokens');
+            const fiveHourEl = document.getElementById('usage-5hr-tokens');
+            
+            if (data.error) {
+                weeklyEl.innerText = "Error loading quota";
+                fiveHourEl.innerText = "Error loading quota";
+            } else if (data.claude_gpt && data.claude_gpt.weekly_refresh) {
+                // Determine which group to show based on current model name
+                let group = data.claude_gpt;
+                if (currentModelName.innerText.includes('Gemini')) {
+                    group = data.gemini;
+                }
+                
+                weeklyEl.innerHTML = `${group.weekly_pct || '0%'} used <br><span style="font-size: 0.85em; opacity: 0.8">Resets in ${group.weekly_refresh}</span>`;
+                fiveHourEl.innerHTML = `${group.fivehr_pct || '0%'} used <br><span style="font-size: 0.85em; opacity: 0.8">Resets in ${group.fivehr_refresh}</span>`;
+            } else if (data.raw_refreshes && data.raw_refreshes.length > 0) {
+                weeklyEl.innerText = data.raw_refreshes[0];
+                fiveHourEl.innerText = data.raw_refreshes[1] || '—';
+            } else {
+                weeklyEl.innerText = "No limit data found";
+                fiveHourEl.innerText = "No limit data found";
+            }
+        } catch (err) {
+            console.error('Failed to fetch quota', err);
         }
-        
+
         // Update DOM
         const projEl = document.getElementById('usage-projects-count');
         const convoEl = document.getElementById('usage-convos-count');
         const msgEl = document.getElementById('usage-messages-count');
-        const weeklyEl = document.getElementById('usage-weekly-tokens');
-        const fiveHourEl = document.getElementById('usage-5hr-tokens');
-        const weeklyResetEl = document.getElementById('usage-weekly-reset');
-        const fiveHrResetEl = document.getElementById('usage-5hr-reset');
         const userEmailEl = document.getElementById('settings-user-email');
 
         if (projEl) projEl.innerText = `${projCount} project${projCount !== 1 ? 's' : ''}`;
         if (convoEl) convoEl.innerText = `${convoCount} conversation${convoCount !== 1 ? 's' : ''}`;
         if (msgEl) msgEl.innerText = `${messageCount} message${messageCount !== 1 ? 's' : ''} in current session`;
-        if (weeklyEl) weeklyEl.innerText = weeklyResetStr;
-        if (fiveHourEl) fiveHourEl.innerText = fiveHrStr;
         if (userEmailEl && currentUser) userEmailEl.innerText = currentUser.email || 'Logged in user';
 
         globalSettingsModal.classList.remove('hidden');
     }
+
 
     if (userProfileBadge) {
         userProfileBadge.addEventListener('click', openGlobalSettingsModal);

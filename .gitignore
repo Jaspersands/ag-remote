@@ -3,3 +3,6 @@ __pycache__/
 *$py.class
 public/qr.png
 .DS_Store
+.env
+*.pyc
+__pycache__
