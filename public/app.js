@@ -305,6 +305,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     const cNameSpan = document.createElement('span');
                     cNameSpan.innerText = convo.name;
                     convoLi.appendChild(cNameSpan);
+
+                    if (convo.id === currentConvoId && state.is_generating) {
+                        const spinner = document.createElement('div');
+                        spinner.className = 'generating-spinner';
+                        spinner.innerHTML = '<svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2" fill="none" class="spin"><circle cx="12" cy="12" r="10" stroke-opacity="0.25"></circle><path d="M12 2a10 10 0 0 1 10 10" stroke-linecap="round"></path></svg>';
+                        convoLi.appendChild(spinner);
+                    }
                     
                     if (convo.time) {
                         const cTimeSpan = document.createElement('span');
@@ -348,6 +355,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 const nameSpan = document.createElement('span');
                 nameSpan.innerText = convo.name;
                 li.appendChild(nameSpan);
+
+                if (convo.id === currentConvoId && state.is_generating) {
+                    const spinner = document.createElement('div');
+                    spinner.className = 'generating-spinner';
+                    spinner.innerHTML = '<svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2" fill="none" class="spin"><circle cx="12" cy="12" r="10" stroke-opacity="0.25"></circle><path d="M12 2a10 10 0 0 1 10 10" stroke-linecap="round"></path></svg>';
+                    li.appendChild(spinner);
+                }
                 
                 if (convo.time) {
                     const timeSpan = document.createElement('span');

@@ -2032,3 +2032,25 @@ input:checked + .slider:before {
     border-radius: 50%;
 }
 
+
+/* Generating Spinner for active conversation */
+.generating-spinner {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: 6px;
+    color: var(--text-secondary);
+}
+
+.spin {
+    animation: spin 1.5s linear infinite;
+}
+
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
+}
