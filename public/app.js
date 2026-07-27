@@ -1047,11 +1047,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const redirectUri = window.location.origin + '/api/auth/google/callback';
             const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=openid%20email%20profile&access_type=offline&prompt=select_account`;
             
-            const width = 500;
-            const height = 600;
-            const left = window.screen.width / 2 - width / 2;
-            const top = window.screen.height / 2 - height / 2;
-            window.open(authUrl, 'Google Login', `width=${width},height=${height},top=${top},left=${left}`);
+            window.location.href = authUrl;
         });
     }
 

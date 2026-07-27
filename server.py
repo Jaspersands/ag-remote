@@ -152,8 +152,11 @@ async def google_callback(request: Request, response: Response, code: str = None
                         <script>
                             if (window.opener) {{
                                 window.opener.postMessage({{ type: 'GOOGLE_AUTH_SUCCESS', token: '{session_token}', user: {user_json} }}, '*');
+                                window.close();
+                            }} else {{
+                                localStorage.setItem('ag_token', '{session_token}');
+                                window.location.href = '/';
                             }}
-                            window.close();
                         </script>
                     </body>
                     </html>
