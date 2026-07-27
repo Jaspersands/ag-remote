@@ -1179,11 +1179,10 @@ body, html {
     flex: 1;
     display: flex;
     flex-direction: column;
-    background-color: var(--bg-secondary);
-    border-radius: 20px;
+    background-color: transparent;
     min-height: 44px;
-    padding: 8px 16px;
-    border: 1px solid var(--border-color);
+    padding: 0 8px;
+    border: none;
     position: relative;
 }
 

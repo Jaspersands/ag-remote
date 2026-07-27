@@ -372,6 +372,32 @@ MODELS_SCRAPER_JS = """
 })()
 """
 
+async def action_load_more_messages():
+    js = """
+    (() => {
+        const articles = document.querySelectorAll('[role="article"]');
+        if (articles.length > 0) {
+            // Check for scrollable ancestor
+            let parent = articles[0].parentElement;
+            while (parent && parent !== document.body) {
+                const style = window.getComputedStyle(parent);
+                if (style.overflowY === 'auto' || style.overflowY === 'scroll') {
+                    if (parent.scrollTop > 0) {
+                        parent.scrollTop = 0;
+                        return true;
+                    }
+                }
+                parent = parent.parentElement;
+            }
+            // Fallback: scroll into view
+            articles[0].scrollIntoView();
+            return true;
+        }
+        return false;
+    })();
+    """
+    return await execute_action(js)
+
 async def action_stop_generation():
     js = """
     (() => {
