@@ -87,7 +87,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // Initialize Models
     async function fetchModels() {
         try {
-            const resp = await fetch('/api/models');
+            const resp = await fetch('/api/models', {
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('ag_token') || ''}` }
+            });
             const data = await resp.json();
             if (data.models) {
                 if (data.current) currentModelName.innerText = data.current.name;
@@ -395,9 +397,14 @@ document.addEventListener('DOMContentLoaded', () => {
         // 5. Render Messages
         const messageContainer = document.getElementById('messages-list');
         const messagesPane = document.getElementById('messages-pane');
-        const isAtBottom = messagesPane && (messagesPane.scrollHeight - messagesPane.scrollTop - messagesPane.clientHeight) < 100;
+        let isAtBottom = messagesPane && (messagesPane.scrollHeight - messagesPane.scrollTop - messagesPane.clientHeight) < 100;
         const oldScrollHeight = messagesPane ? messagesPane.scrollHeight : 0;
         const oldScrollTop = messagesPane ? messagesPane.scrollTop : 0;
+        
+        // Never auto-scroll to bottom if we are near the top (e.g. loading older messages)
+        if (oldScrollTop < 100) {
+            isAtBottom = false;
+        }
         
         if (state.messages.length === 0) {
             messageContainer.innerHTML = `
@@ -617,9 +624,9 @@ document.addEventListener('DOMContentLoaded', () => {
             // Auto scroll messages to bottom only if user was already at bottom
             if (isAtBottom && messagesPane) {
                 messagesPane.scrollTop = messagesPane.scrollHeight;
-            } else if (oldScrollTop === 0 && messagesPane && messagesPane.scrollHeight > oldScrollHeight) {
-                // If we were at the top and loaded more messages, maintain visual position
-                messagesPane.scrollTop = messagesPane.scrollHeight - oldScrollHeight;
+            } else if (oldScrollTop < 100 && messagesPane && messagesPane.scrollHeight > oldScrollHeight) {
+                // If we were near the top and loaded more messages, maintain visual position perfectly
+                messagesPane.scrollTop = (messagesPane.scrollHeight - oldScrollHeight) + oldScrollTop;
             }
         }
 

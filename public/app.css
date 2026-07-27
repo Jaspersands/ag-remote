@@ -606,7 +606,7 @@ body, html {
     line-height: 1.5;
     outline: none;
     resize: none;
-    overflow-y: hidden;
+    overflow-y: auto;
 }
 
 #chat-input:disabled {
