@@ -396,6 +396,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const messageContainer = document.getElementById('messages-list');
         const messagesPane = document.getElementById('messages-pane');
         const isAtBottom = messagesPane && (messagesPane.scrollHeight - messagesPane.scrollTop - messagesPane.clientHeight) < 100;
+        const oldScrollHeight = messagesPane ? messagesPane.scrollHeight : 0;
+        const oldScrollTop = messagesPane ? messagesPane.scrollTop : 0;
+        
         if (state.messages.length === 0) {
             messageContainer.innerHTML = `
                 <div class="empty-state">
@@ -614,6 +617,9 @@ document.addEventListener('DOMContentLoaded', () => {
             // Auto scroll messages to bottom only if user was already at bottom
             if (isAtBottom && messagesPane) {
                 messagesPane.scrollTop = messagesPane.scrollHeight;
+            } else if (oldScrollTop === 0 && messagesPane && messagesPane.scrollHeight > oldScrollHeight) {
+                // If we were at the top and loaded more messages, maintain visual position
+                messagesPane.scrollTop = messagesPane.scrollHeight - oldScrollHeight;
             }
         }
 
@@ -781,6 +787,20 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // Form submission
+    let isLoadingMore = false;
+    messagesPane.addEventListener('scroll', () => {
+        if (messagesPane.scrollTop === 0 && !isLoadingMore) {
+            isLoadingMore = true;
+            fetch('/api/action', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('ag_token') || ''}` },
+                body: JSON.stringify({ action: 'load_more' })
+            }).catch(err => console.error("Error loading more:", err));
+            
+            setTimeout(() => { isLoadingMore = false; }, 2000);
+        }
+    });
+
     chatForm.addEventListener('submit', (e) => {
         e.preventDefault();
         const text = chatInput.value.trim();

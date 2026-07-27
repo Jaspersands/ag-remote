@@ -411,6 +411,8 @@ async def handle_action(request: Request):
         return await action_new_conversation()
     elif action == "stop_generation":
         return await action_stop_generation()
+    elif action == "load_more":
+        return await action_load_more_messages()
 
 @app.get("/api/quota")
 async def get_quota(request: Request):
