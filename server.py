@@ -483,11 +483,10 @@ async def get_models(request: Request):
     current_js = """
     (() => {
         const btn = Array.from(document.querySelectorAll('button')).find(b => 
-            b.className && b.className.includes('cursor-pointer') &&
-            b.innerText && b.innerText.match(/Gemini|Claude|GPT|Sonnet|Flash|Pro/i) && 
-            b.innerText.length < 80
+            b.innerText && b.innerText.match(/Gemini|Claude|GPT|Sonnet|Flash|Pro|Qwen/i) && 
+            b.innerText.length < 50
         );
-        return btn ? btn.innerText.trim() : null;
+        return btn ? btn.innerText.trim().split('\n')[0] : null;
     })()
     """
     current_model = await execute_action(current_js)
@@ -502,7 +501,7 @@ async def get_models(request: Request):
     # Close picker with Escape
     await execute_action("document.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true, cancelable: true}))")
     
-    return {"current": current_model, "models": models or []}
+    return {"current": {"name": current_model} if current_model else None, "models": models or []}
 
 @app.post("/api/models/switch")
 async def switch_model(request: Request):

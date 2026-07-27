@@ -156,18 +156,22 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Update the Connection status badge
     function updateConnectionUI(serverConnected, appConnected) {
+        const updateProp = (el, prop, val) => { if (el && el[prop] !== val) el[prop] = val; };
+        
         if (serverConnected && appConnected) {
-            connectionStatus.className = 'status-badge connected';
-            statusText.innerText = 'Computer Paired';
-            chatInput.disabled = false;
-            sendBtn.disabled = false;
-            chatInput.placeholder = 'Ask anything...';
+            updateProp(connectionStatus, 'className', 'status-badge connected');
+            updateProp(statusText, 'innerText', 'Computer Paired');
+            updateProp(chatInput, 'disabled', false);
+            updateProp(sendBtn, 'disabled', false);
+            updateProp(modelSelectorBtn, 'disabled', false);
+            updateProp(chatInput, 'placeholder', 'Ask anything...');
         } else {
-            connectionStatus.className = 'status-badge disconnected';
-            statusText.innerText = serverConnected ? 'Computer Offline' : 'Disconnected';
-            chatInput.disabled = true;
-            sendBtn.disabled = true;
-            chatInput.placeholder = serverConnected ? 'Run python3 agent.py on your computer to pair...' : 'Connecting to relay server...';
+            updateProp(connectionStatus, 'className', 'status-badge disconnected');
+            updateProp(statusText, 'innerText', serverConnected ? 'Computer Offline' : 'Disconnected');
+            updateProp(chatInput, 'disabled', true);
+            updateProp(sendBtn, 'disabled', true);
+            updateProp(modelSelectorBtn, 'disabled', true);
+            updateProp(chatInput, 'placeholder', serverConnected ? 'Run python3 agent.py on your computer to pair...' : 'Connecting to relay server...');
         }
     }
 
