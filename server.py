@@ -539,6 +539,27 @@ async def switch_model(request: Request):
     result = await execute_action(click_js)
     return result or {"success": False, "error": "Action failed"}
 
+@app.get("/api/local-image")
+async def get_local_image(path: str, request: Request):
+    if not get_auth_user_from_request(request):
+        raise HTTPException(status_code=401, detail="Authentication required")
+    if not path.startswith('/'):
+        raise HTTPException(status_code=400, detail="Invalid path")
+    try:
+        if os.path.exists(path):
+            with open(path, 'rb') as f:
+                content = f.read()
+            ext = path.split('.')[-1].lower()
+            mime = "image/png"
+            if ext in ['jpg', 'jpeg']: mime = "image/jpeg"
+            elif ext == 'gif': mime = "image/gif"
+            elif ext == 'webp': mime = "image/webp"
+            elif ext == 'svg': mime = "image/svg+xml"
+            return Response(content=content, media_type=mime)
+        return Response(status_code=404, content="File not found")
+    except Exception as e:
+        return Response(status_code=500, content=str(e))
+
 @app.get("/symbols-icons/{path:path}")
 async def proxy_symbols_icons(path: str, request: Request):
     if not get_auth_user_from_request(request):
@@ -751,6 +772,27 @@ JS_SCRAPER = """
                 userText = textEl ? textEl.innerText.trim() : userEl.innerText.trim();
                 // Remove timestamp at the end if present (e.g. "4:27 PM" or "8:50 PM")
                 userText = userText.replace(/\\d+:\\d+\\s*(AM|PM)$/, '').trim();
+                
+                // Extract images
+                const imgs = Array.from(userEl.querySelectorAll('img'));
+                imgs.forEach(img => {
+                    let src = img.src;
+                    if (src) {
+                        if (src.startsWith('file://')) {
+                            src = '/api/local-image?path=' + encodeURIComponent(src.replace('file://', ''));
+                        } else if (src.startsWith('blob:')) {
+                            try {
+                                const canvas = document.createElement('canvas');
+                                canvas.width = img.naturalWidth || 200;
+                                canvas.height = img.naturalHeight || 200;
+                                const ctx = canvas.getContext('2d');
+                                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                                src = canvas.toDataURL('image/png');
+                            } catch(e) {}
+                        }
+                        userText += `\\n<img src="${src}" class="attachment-thumbnail" style="max-width: 200px; max-height: 200px; border-radius: 8px; margin-top: 8px;" />`;
+                    }
+                });
             }
             
             // 2. Extract Assistant message (now using innerHTML to keep rich file badges and anchors!)
