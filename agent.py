@@ -99,7 +99,7 @@ JS_SCRAPER = """
             const toolConfirmations = art.querySelectorAll('button');
             toolConfirmations.forEach(btn => {
                 const btnText = btn.innerText.trim();
-                if (btnText.includes('Proceed') || btnText.includes('Run') || btnText.includes('Confirm') || btnText.includes('Sandbox')) {
+                if (!btn.disabled && (btnText.includes('Proceed') || btnText.includes('Run') || btnText.includes('Confirm') || btnText.includes('Sandbox'))) {
                     let toolDetails = "";
                     const codeBlock = art.querySelector('pre, code, div.font-mono');
                     if (codeBlock) {
@@ -127,6 +127,17 @@ JS_SCRAPER = """
                 });
             }
         });
+        const queued_messages = [];
+        const queuedCard = document.querySelector('[data-testid="queued-messages-card"]');
+        if (queuedCard) {
+            const rowEls = queuedCard.querySelectorAll('.flex-row.items-center.justify-between');
+            rowEls.forEach(row => {
+                const textEl = row.querySelector('.text-foreground');
+                if (textEl && textEl.innerText) {
+                    queued_messages.push(textEl.innerText.trim());
+                }
+            });
+        }
         
         return {
             url,
@@ -134,7 +145,8 @@ JS_SCRAPER = """
             projects,
             conversations,
             messages,
-            pending_tool
+            pending_tool,
+            queued_messages
         };
     } catch (e) {
         return { error: e.toString() };
@@ -340,28 +352,56 @@ class AntigravityAgent:
     async def execute_command(self, payload):
         action = payload.get("action")
         if action == "send_message":
-            text = payload.get("text", "").replace("\\", "\\\\").replace("`", "\\`").replace("$", "\\$")
+            text_json = json.dumps(payload.get("text", ""))
+            files_json = json.dumps(payload.get("files", []))
+            
             js = f"""
             (() => {{
+                const text = {text_json};
+                const filesData = {files_json};
                 const input = document.querySelector('textarea, div[contenteditable="true"]');
                 if (!input) return {{ error: "Input not found" }};
                 input.focus();
-                if (input.tagName === 'TEXTAREA') {{
-                    input.value = `{text}`;
-                    input.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                }} else {{
-                    input.innerText = `{text}`;
+                
+                if (filesData && filesData.length > 0) {{
+                    const dt = new DataTransfer();
+                    filesData.forEach(fileData => {{
+                        const arr = fileData.base64.split(',');
+                        const bstr = atob(arr[1]);
+                        let n = bstr.length;
+                        const u8arr = new Uint8Array(n);
+                        while(n--) {{
+                            u8arr[n] = bstr.charCodeAt(n);
+                        }}
+                        const file = new File([u8arr], fileData.name, {{ type: fileData.type }});
+                        dt.items.add(file);
+                    }});
+                    const pasteEvent = new ClipboardEvent('paste', {{
+                        clipboardData: dt,
+                        bubbles: true,
+                        cancelable: true
+                    }});
+                    input.dispatchEvent(pasteEvent);
+                }}
+                
+                if (text) {{
+                    if (input.tagName === 'TEXTAREA') {{
+                        input.value = text;
+                    }} else {{
+                        input.innerText = text;
+                    }}
                     input.dispatchEvent(new Event('input', {{ bubbles: true }}));
                 }}
+                
                 setTimeout(() => {{
                     const form = input.closest('form');
-                    const sendBtn = form ? form.querySelector('button[type="submit"]') : null;
+                    const sendBtn = Array.from(document.querySelectorAll('button')).find(b => b.querySelector('svg') || b.innerText.includes('Send') || b.type === 'submit');
                     if (sendBtn && !sendBtn.disabled) {{
                         sendBtn.click();
                     }} else {{
                         input.dispatchEvent(new KeyboardEvent('keydown', {{ key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }}));
                     }}
-                }}, 100);
+                }}, 300);
                 return {{ success: true }};
             }})()
             """
@@ -406,6 +446,38 @@ class AntigravityAgent:
                 const pill = document.querySelector('[data-testid="convo-pill-{convo_id}"]');
                 if (pill) {{ pill.click(); return {{ success: true }}; }}
                 return {{ error: "Conversation not found" }};
+            }})()
+            """
+            return await self.execute_action(js)
+        elif action == "update_project_settings":
+            notes = payload.get("notes", "").replace("\\", "\\\\").replace("`", "\\`").replace("$", "\\$")
+            mode = payload.get("mode", "auto")
+            js = f"""
+            (() => {{
+                // Note: These selectors are placeholders. The user needs to update them with actual data-testids from the desktop app
+                const openSettingsBtn = document.querySelector('[data-testid="project-settings-btn"]');
+                if (!openSettingsBtn) return {{ error: "Could not find project settings button in desktop app. Please update the data-testid placeholder in agent.py" }};
+                
+                openSettingsBtn.click();
+                
+                setTimeout(() => {{
+                    const notesArea = document.querySelector('[data-testid="project-notes-textarea"]');
+                    if (notesArea) {{
+                        notesArea.value = `{notes}`;
+                        notesArea.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                    }}
+                    
+                    const modeSelect = document.querySelector('[data-testid="project-mode-select"]');
+                    if (modeSelect) {{
+                        modeSelect.value = '{mode}';
+                        modeSelect.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                    }}
+                    
+                    const saveBtn = document.querySelector('[data-testid="project-settings-save-btn"]');
+                    if (saveBtn) saveBtn.click();
+                }}, 300);
+                
+                return {{ success: true }};
             }})()
             """
             return await self.execute_action(js)

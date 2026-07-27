@@ -19,20 +19,39 @@ document.addEventListener('DOMContentLoaded', () => {
     
     const toolBar = document.getElementById('tool-bar');
     const toolDetailsText = document.getElementById('tool-details-text');
-    const approveToolBtn = document.getElementById('approve-tool-btn');
-    const rejectToolBtn = document.getElementById('reject-tool-btn');
+    const toolActionsContainer = document.getElementById('tool-actions-container');
     
     const chatForm = document.getElementById('chat-form');
     const chatInput = document.getElementById('chat-input');
     const sendBtn = document.getElementById('send-btn');
+    const attachFileBtn = document.getElementById('attach-file-btn');
+    const fileInput = document.getElementById('file-input');
+    const attachmentsPreview = document.getElementById('attachments-preview');
+
+    let pendingFiles = [];
 
     let socket = null;
     let currentConvoId = null;
+    let isLoggingOut = false;
+    let globalGoogleClientId = '';
+    let currentUserEmail = '';
+    let sessionStartTime = null;    // when the user logged in
+    let firstMessageTime = null;    // when the first message was sent this session
 
-    // Keep track of collapsed project names
-    const collapsedProjects = new Set(JSON.parse(localStorage.getItem('collapsedProjects') || '[]'));
+    // Per-user localStorage helpers
+    function userKey(key) {
+        return currentUserEmail ? `user:${currentUserEmail}:${key}` : key;
+    }
+
+    // Keep track of collapsed project names (per-user)
+    const collapsedProjects = new Set();
     function saveCollapsedProjects() {
-        localStorage.setItem('collapsedProjects', JSON.stringify(Array.from(collapsedProjects)));
+        localStorage.setItem(userKey('collapsedProjects'), JSON.stringify(Array.from(collapsedProjects)));
+    }
+    function loadCollapsedProjects() {
+        collapsedProjects.clear();
+        const saved = JSON.parse(localStorage.getItem(userKey('collapsedProjects')) || '[]');
+        saved.forEach(p => collapsedProjects.add(p));
     }
 
     // Keep track of locally expanded files changed headers
@@ -124,20 +143,52 @@ document.addEventListener('DOMContentLoaded', () => {
         const idMatch = url.match(/\/c\/([a-zA-Z0-9\-]+)/);
         currentConvoId = idMatch ? idMatch[1] : null;
         
-        // Find active convo name from general convos or project convos
+        // Find active project and conversation
+        let activeProjectName = null;
         let activeConvo = state.conversations ? state.conversations.find(c => c.id === currentConvoId) : null;
-        if (!activeConvo && state.projects) {
+        
+        if (state.projects) {
             for (const proj of state.projects) {
-                if (proj.conversations) {
-                    activeConvo = proj.conversations.find(c => c.id === currentConvoId);
-                    if (activeConvo) break;
+                if (proj.conversations && proj.conversations.some(c => c.id === currentConvoId)) {
+                    activeProjectName = proj.name;
+                    if (!activeConvo) {
+                        activeConvo = proj.conversations.find(c => c.id === currentConvoId);
+                    }
+                    break;
                 }
             }
         }
-        activeConvoTitle.innerText = activeConvo ? activeConvo.name : (state.title || 'No Conversation');
-        
-        // Set active project title
-        activeProjectTitle.innerText = state.title || 'Antigravity Workspace';
+
+        let projectDisplayName = 'Antigravity Workspace';
+        let convoDisplayName = '';
+
+        if (activeProjectName) {
+            projectDisplayName = getProjectSettings(activeProjectName).alias || activeProjectName;
+        }
+
+        if (activeConvo) {
+            convoDisplayName = activeConvo.name;
+        } else if (state.title && state.title !== 'Antigravity Workspace' && state.title !== 'Antigravity') {
+            convoDisplayName = state.title;
+        }
+
+        if (activeProjectName) {
+            activeProjectTitle.innerText = projectDisplayName;
+            if (convoDisplayName && convoDisplayName !== projectDisplayName) {
+                activeConvoTitle.innerText = convoDisplayName;
+                activeConvoTitle.style.display = 'block';
+            } else {
+                activeConvoTitle.innerText = '';
+                activeConvoTitle.style.display = 'none';
+            }
+        } else {
+            // General conversation or no project active
+            activeProjectTitle.innerText = convoDisplayName || 'Antigravity Workspace';
+            activeConvoTitle.innerText = '';
+            activeConvoTitle.style.display = 'none';
+        }
+
+        lastState = state;
 
         // 3. Render Projects and Nested Conversations
         projectList.innerHTML = '';
@@ -169,8 +220,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 </svg>
             `;
             
-            toggleBtn.addEventListener('click', (e) => {
-                e.stopPropagation(); // Avoid triggering select_project
+            const toggleCollapse = (e) => {
+                if (e) e.stopPropagation();
                 const isCollapsed = treeItem.classList.toggle('collapsed');
                 if (isCollapsed) {
                     collapsedProjects.add(projectName);
@@ -178,18 +229,37 @@ document.addEventListener('DOMContentLoaded', () => {
                     collapsedProjects.delete(projectName);
                 }
                 saveCollapsedProjects();
-            });
+            };
+            
+            toggleBtn.addEventListener('click', toggleCollapse);
             headerDiv.appendChild(toggleBtn);
             
             // Project name span
             const nameSpan = document.createElement('span');
             nameSpan.className = 'project-name';
-            nameSpan.innerText = projectName;
+            const projSettings = getProjectSettings(projectName);
+            nameSpan.innerText = projSettings.alias || projectName;
             headerDiv.appendChild(nameSpan);
+
+            // Project settings gear button
+            const settingsBtn = document.createElement('button');
+            settingsBtn.className = 'project-settings-btn';
+            settingsBtn.setAttribute('title', 'Project Settings');
+            settingsBtn.innerHTML = `
+                <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none">
+                    <circle cx="12" cy="12" r="3"></circle>
+                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                </svg>
+            `;
+            settingsBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                openProjectSettingsModal(projectName, proj);
+            });
+            headerDiv.appendChild(settingsBtn);
             
             headerDiv.addEventListener('click', () => {
+                toggleCollapse();
                 sendAction('select_project', { name: projectName });
-                closeSidebar();
             });
             treeItem.appendChild(headerDiv);
             
@@ -270,6 +340,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // 5. Render Messages
         const messageContainer = document.getElementById('messages-list');
+        const messagesPane = document.getElementById('messages-pane');
+        const isAtBottom = messagesPane && (messagesPane.scrollHeight - messagesPane.scrollTop - messagesPane.clientHeight) < 100;
         if (state.messages.length === 0) {
             messageContainer.innerHTML = `
                 <div class="empty-state">
@@ -279,10 +351,38 @@ document.addEventListener('DOMContentLoaded', () => {
                 </div>
             `;
         } else {
-            messageContainer.innerHTML = '';
-            state.messages.forEach(msg => {
-                const msgDiv = document.createElement('div');
+            const emptyState = messageContainer.querySelector('.empty-state');
+            if (emptyState) emptyState.remove();
+
+            const queuedNodes = messageContainer.querySelectorAll('.queued-message');
+            queuedNodes.forEach(n => n.remove());
+
+            const currentNodes = messageContainer.children;
+            if (currentNodes.length > state.messages.length) {
+                messageContainer.innerHTML = '';
+            }
+
+            state.messages.forEach((msg, index) => {
+                let msgDiv = messageContainer.children[index];
+                let isNew = false;
+                
+                if (!msgDiv) {
+                    msgDiv = document.createElement('div');
+                    messageContainer.appendChild(msgDiv);
+                    isNew = true;
+                }
+                
+                const msgStateStr = JSON.stringify(msg);
+                if (!isNew && msgDiv.getAttribute('data-state') === msgStateStr) {
+                    return; 
+                }
+                
+                msgDiv.setAttribute('data-state', msgStateStr);
                 msgDiv.className = `message ${msg.sender}`;
+                msgDiv.innerHTML = '';
+                
+                const contentDiv = document.createElement('div');
+                contentDiv.className = 'message-content';
                 
                 // Renders thought block if present
                 // Renders thought block if present
@@ -310,7 +410,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     
                     thoughtBlock.appendChild(thoughtSummary);
                     thoughtBlock.appendChild(thoughtDetails);
-                    msgDiv.appendChild(thoughtBlock);
+                    contentDiv.appendChild(thoughtBlock);
                 }
                 
                 // Renders main text message (using innerHTML to allow rich links and badges)
@@ -327,7 +427,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         sendAction('click_scope_mention', { articleIndex: msg.articleIndex, filename: filename });
                     });
                 });
-                msgDiv.appendChild(textSpan);
+                contentDiv.appendChild(textSpan);
                 
                 // Renders files changed block if present
                 if (msg.hasFiles) {
@@ -422,7 +522,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         sendAction('click_review_button', { articleIndex: msg.articleIndex });
                     });
                     
-                    msgDiv.appendChild(fcDiv);
+                    contentDiv.appendChild(fcDiv);
                 }
                 
                 // Renders artifact if present (making it clickable to open the walkthrough!)
@@ -435,19 +535,69 @@ document.addEventListener('DOMContentLoaded', () => {
                         loadFileContent('/api/walkthrough');
                         sendAction('click_artifact', { articleIndex: msg.articleIndex });
                     });
-                    msgDiv.appendChild(artDiv);
+                    contentDiv.appendChild(artDiv);
                 }
                 
-                messageContainer.appendChild(msgDiv);
+                msgDiv.appendChild(contentDiv);
             });
             
-            // Auto scroll messages to bottom
-            messagesPane.scrollTop = messagesPane.scrollHeight;
+            // Render Queued Messages
+            if (state.queued_messages && state.queued_messages.length > 0) {
+                state.queued_messages.forEach(qText => {
+                    const qDiv = document.createElement('div');
+                    qDiv.className = 'message user queued-message';
+                    qDiv.style.opacity = '0.6';
+                    
+                    const qContent = document.createElement('div');
+                    qContent.className = 'message-content text-muted';
+                    qContent.innerHTML = `<span style="font-style: italic;">Queued: ${qText}</span>`;
+                    qDiv.appendChild(qContent);
+                    
+                    messageContainer.appendChild(qDiv);
+                });
+            }
+            
+            // Auto scroll messages to bottom only if user was already at bottom
+            if (isAtBottom && messagesPane) {
+                messagesPane.scrollTop = messagesPane.scrollHeight;
+            }
         }
 
         // 6. Tool Pending Bar
         if (state.pending_tool) {
             toolDetailsText.innerText = state.pending_tool.text;
+            
+            // Clear and render dynamic buttons
+            if (toolActionsContainer) {
+                toolActionsContainer.innerHTML = '';
+                if (state.pending_tool.buttons && Array.isArray(state.pending_tool.buttons)) {
+                    state.pending_tool.buttons.forEach(btnText => {
+                        const btn = document.createElement('button');
+                        btn.innerText = btnText;
+                        
+                        // Style based on text
+                        if (btnText.match(/cancel|reject|deny/i)) {
+                            btn.className = 'btn btn-danger';
+                        } else if (btnText.match(/allow|proceed|approve|always/i)) {
+                            btn.className = 'btn btn-success';
+                        } else {
+                            btn.className = 'btn btn-outline';
+                        }
+                        
+                        btn.addEventListener('click', () => {
+                            hapticTap();
+                            sendAction('click_tool_button', {
+                                articleIndex: state.pending_tool.articleIndex,
+                                buttonText: btnText
+                            });
+                            toolBar.classList.add('hidden');
+                        });
+                        
+                        toolActionsContainer.appendChild(btn);
+                    });
+                }
+            }
+            
             toolBar.classList.remove('hidden');
         } else {
             toolBar.classList.add('hidden');
@@ -464,29 +614,141 @@ document.addEventListener('DOMContentLoaded', () => {
         socket.send(msg);
     }
 
+    // Helper for haptics
+    function hapticTap() {
+        if (navigator.vibrate) {
+            navigator.vibrate(10);
+        }
+    }
+
+    // Textarea auto-resize
+    chatInput.addEventListener('input', () => {
+        chatInput.style.height = '24px';
+        chatInput.style.height = Math.min(chatInput.scrollHeight, 150) + 'px';
+    });
+
+    // File Attachment Logic
+    function renderAttachmentsPreview() {
+        if (pendingFiles.length === 0) {
+            attachmentsPreview.classList.add('hidden');
+            attachmentsPreview.innerHTML = '';
+            return;
+        }
+        
+        attachmentsPreview.classList.remove('hidden');
+        attachmentsPreview.innerHTML = '';
+        
+        pendingFiles.forEach((file, index) => {
+            const thumb = document.createElement('div');
+            thumb.className = 'attachment-thumbnail';
+            
+            if (file.type.startsWith('image/')) {
+                const img = document.createElement('img');
+                img.src = file.base64;
+                thumb.appendChild(img);
+            } else {
+                const icon = document.createElement('div');
+                icon.className = 'file-icon';
+                icon.innerText = '📄';
+                thumb.appendChild(icon);
+            }
+            
+            const removeBtn = document.createElement('button');
+            removeBtn.className = 'attachment-remove';
+            removeBtn.innerHTML = '×';
+            removeBtn.title = file.name;
+            removeBtn.addEventListener('click', () => {
+                pendingFiles.splice(index, 1);
+                renderAttachmentsPreview();
+            });
+            
+            thumb.appendChild(removeBtn);
+            attachmentsPreview.appendChild(thumb);
+        });
+    }
+
+    async function processFiles(files) {
+        for (let i = 0; i < files.length; i++) {
+            const file = files[i];
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                pendingFiles.push({
+                    name: file.name,
+                    type: file.type,
+                    base64: e.target.result
+                });
+                renderAttachmentsPreview();
+            };
+            reader.readAsDataURL(file);
+        }
+    }
+
+    attachFileBtn.addEventListener('click', () => {
+        fileInput.click();
+    });
+
+    fileInput.addEventListener('change', (e) => {
+        if (e.target.files && e.target.files.length > 0) {
+            processFiles(e.target.files);
+        }
+        fileInput.value = '';
+    });
+
+    chatInput.addEventListener('paste', (e) => {
+        if (e.clipboardData && e.clipboardData.files && e.clipboardData.files.length > 0) {
+            e.preventDefault();
+            processFiles(e.clipboardData.files);
+        }
+    });
+    
+    // Handle Drag and Drop
+    const inputArea = document.getElementById('input-area');
+    inputArea.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        inputArea.style.opacity = '0.7';
+    });
+    inputArea.addEventListener('dragleave', () => {
+        inputArea.style.opacity = '1';
+    });
+    inputArea.addEventListener('drop', (e) => {
+        e.preventDefault();
+        inputArea.style.opacity = '1';
+        if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+            processFiles(e.dataTransfer.files);
+        }
+    });
+
+    // Handle Enter to submit (Shift+Enter for newline)
+    chatInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            chatForm.dispatchEvent(new Event('submit'));
+        }
+    });
+
     // Form submission
     chatForm.addEventListener('submit', (e) => {
         e.preventDefault();
         const text = chatInput.value.trim();
-        if (!text) return;
+        if (!text && pendingFiles.length === 0) return;
         
-        sendAction('send_message', { text });
+        // Track the first message time for 5-hour window calculation
+        if (!firstMessageTime) {
+            firstMessageTime = new Date();
+        }
+        
+        hapticTap();
+        sendAction('send_message', { text, files: pendingFiles });
+        
         chatInput.value = '';
-    });
-
-    // Tool approvals
-    approveToolBtn.addEventListener('click', () => {
-        sendAction('approve_tool');
-        toolBar.classList.add('hidden');
-    });
-
-    rejectToolBtn.addEventListener('click', () => {
-        sendAction('reject_tool');
-        toolBar.classList.add('hidden');
+        chatInput.style.height = '24px';
+        pendingFiles = [];
+        renderAttachmentsPreview();
     });
 
     // New chat action
     newChatBtn.addEventListener('click', () => {
+        hapticTap();
         sendAction('new_conversation');
         closeSidebar();
     });
@@ -604,14 +866,14 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function clearAppUI() {
-        if (chatMessages) {
-            chatMessages.innerHTML = '';
+        if (messagesList) {
+            messagesList.innerHTML = '';
         }
-        if (projectsList) {
-            projectsList.innerHTML = '';
+        if (projectList) {
+            projectList.innerHTML = '';
         }
-        if (conversationsList) {
-            conversationsList.innerHTML = '';
+        if (convoList) {
+            convoList.innerHTML = '';
         }
         const fileDrawer = document.getElementById('file-drawer');
         if (fileDrawer) {
@@ -660,8 +922,25 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function renderUserProfile(user) {
+        const previousEmail = currentUserEmail;
         currentUser = user;
         if (user) {
+            const newEmail = user.email || '';
+            // If a different user logged in, clear old user's data from DOM and localStorage
+            if (previousEmail && previousEmail !== newEmail) {
+                clearAppUI();
+                collapsedProjects.clear();
+            }
+            currentUserEmail = newEmail;
+            sessionStartTime = new Date(); // record login time
+            firstMessageTime = null;       // reset per-session message tracking
+            loadCollapsedProjects(); // load this user's collapsed state
+
+            // Apply this user's saved theme
+            const userTheme = localStorage.getItem(userKey('ag_theme')) || 'dark';
+            document.documentElement.setAttribute('data-theme', userTheme);
+            if (themeSelect) themeSelect.value = userTheme;
+
             userEmailText.innerText = user.email || 'User';
             if (user.picture) {
                 userAvatar.src = user.picture;
@@ -673,6 +952,8 @@ document.addEventListener('DOMContentLoaded', () => {
             authLockScreen.classList.add('hidden');
             authLockScreen.style.display = 'none';
         } else {
+            currentUserEmail = '';
+            collapsedProjects.clear();
             userProfileBadge.classList.add('hidden');
             authLockScreen.classList.remove('hidden');
             authLockScreen.style.display = 'flex';
@@ -686,12 +967,18 @@ document.addEventListener('DOMContentLoaded', () => {
             if (token) {
                 headers['Authorization'] = `Bearer ${token}`;
             }
-            const resp = await fetch('/api/auth/status', { headers });
+            const resp = await fetch('/api/auth/status', { 
+                headers,
+                cache: 'no-store'
+            });
             const data = await resp.json();
             if (data.authenticated && data.user) {
                 renderUserProfile(data.user);
                 connectWebSocket();
             } else {
+                if (data.google_client_id) {
+                    globalGoogleClientId = data.google_client_id;
+                }
                 localStorage.removeItem('ag_token');
                 clearAppUI();
                 renderUserProfile(null);
@@ -707,16 +994,40 @@ document.addEventListener('DOMContentLoaded', () => {
     if (googleLoginBtn) {
         googleLoginBtn.addEventListener('click', () => {
             hideAuthError();
-            const clientId = "32555940559.apps.googleusercontent.com";
-            const redirectUri = "http://localhost:8020/api/auth/google/callback";
-            const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent('openid https://www.googleapis.com/auth/userinfo.email')}`;
             
-            const width = 500;
-            const height = 600;
-            const left = (window.screen.width - width) / 2;
-            const top = (window.screen.height - height) / 2;
+            const clientId = globalGoogleClientId || '367177401520-4jg61r571kgefpidfn19nff02qo8ik50.apps.googleusercontent.com';
             
-            window.open(authUrl, 'GoogleAuthPopup', `width=${width},height=${height},top=${top},left=${left},scrollbars=yes`);
+            if (window.google && google.accounts && google.accounts.oauth2) {
+                const client = google.accounts.oauth2.initTokenClient({
+                    client_id: clientId,
+                    scope: 'openid email profile',
+                    callback: async (response) => {
+                        if (response && response.access_token) {
+                            try {
+                                const res = await fetch('/api/auth/google/token', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ access_token: response.access_token })
+                                });
+                                const data = await res.json();
+                                if (!res.ok || !data.success) {
+                                    throw new Error(data.detail || 'Google Login failed');
+                                }
+                                if (data.token) {
+                                    localStorage.setItem('ag_token', data.token);
+                                }
+                                renderUserProfile(data.user);
+                                connectWebSocket();
+                            } catch (err) {
+                                showAuthError(err.message);
+                            }
+                        }
+                    }
+                });
+                client.requestAccessToken();
+            } else {
+                showAuthError("Google Identity Services not loaded");
+            }
         });
     }
 
@@ -797,7 +1108,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     if (logoutBtn) {
-        logoutBtn.addEventListener('click', async () => {
+        logoutBtn.addEventListener('click', async (e) => {
+            e.stopPropagation();
             isLoggingOut = true;
             const token = localStorage.getItem('ag_token') || '';
             const headers = {};
@@ -823,8 +1135,201 @@ document.addEventListener('DOMContentLoaded', () => {
             } catch (err) {}
             
             clearAppUI();
+            // Close any open modals before showing login screen
+            document.querySelectorAll('.modal').forEach(m => m.classList.add('hidden'));
+            if (globalSettingsModal) globalSettingsModal.classList.add('hidden');
             renderUserProfile(null);
             isLoggingOut = false;
+        });
+    }
+
+    // Global & Project Settings Modals Setup
+    let lastState = null;
+
+    function getProjectSettings(name) {
+        try {
+            return JSON.parse(localStorage.getItem(userKey('proj_settings_' + name)) || '{}');
+        } catch(e) {
+            return {};
+        }
+    }
+
+    function saveProjectSettings(name, settings) {
+        localStorage.setItem(userKey('proj_settings_' + name), JSON.stringify(settings));
+    }
+
+    const globalSettingsModal = document.getElementById('global-settings-modal');
+    const closeGlobalSettingsBtn = document.getElementById('close-global-settings');
+    const modalLogoutBtn = document.getElementById('modal-logout-btn');
+    const themeSelect = document.getElementById('theme-select');
+
+    const projectSettingsModal = document.getElementById('project-settings-modal');
+    const closeProjectSettingsBtn = document.getElementById('close-project-settings');
+    const projectSettingsForm = document.getElementById('project-settings-form');
+    const projectAliasInput = document.getElementById('project-alias-input');
+    const projectNotesInput = document.getElementById('project-notes-input');
+    const projectModeSelect = document.getElementById('project-mode-select');
+    const projectInfoName = document.getElementById('project-info-name');
+    const projectInfoCount = document.getElementById('project-info-count');
+    let currentEditingProject = null;
+
+    // Theme setup - default to dark until we know who's logged in
+    document.documentElement.setAttribute('data-theme', 'dark');
+    if (themeSelect) themeSelect.value = 'dark';
+
+    if (themeSelect) {
+        themeSelect.addEventListener('change', (e) => {
+            const theme = e.target.value;
+            localStorage.setItem(userKey('ag_theme'), theme);
+            document.documentElement.setAttribute('data-theme', theme);
+        });
+    }
+
+    // Global Settings Listeners & Usage Metrics Computation
+    function openGlobalSettingsModal() {
+        if (!globalSettingsModal) return;
+
+        // Count projects and conversations from live state
+        let projCount = 0;
+        let convoCount = 0;
+        if (lastState) {
+            if (lastState.projects) projCount = lastState.projects.length;
+            if (lastState.conversations) convoCount += lastState.conversations.length;
+            if (lastState.projects) {
+                lastState.projects.forEach(p => {
+                    if (p.conversations) convoCount += p.conversations.length;
+                });
+            }
+        }
+        const messageCount = messagesList ? messagesList.children.length : 0;
+
+        // Usage reset time calculations
+        // 5-hour window resets 5 hours after your first message in the window
+        // Weekly quota resets every Sunday at midnight UTC
+        const now = new Date();
+        
+        // Weekly reset: next Sunday midnight UTC
+        const weeklyReset = new Date(now);
+        const daysUntilSunday = (7 - weeklyReset.getUTCDay()) % 7 || 7;
+        weeklyReset.setUTCDate(weeklyReset.getUTCDate() + daysUntilSunday);
+        weeklyReset.setUTCHours(0, 0, 0, 0);
+        const weeklyMs = weeklyReset - now;
+        const weeklyDays = Math.floor(weeklyMs / 86400000);
+        const weeklyHrs = Math.floor((weeklyMs % 86400000) / 3600000);
+        const weeklyResetStr = weeklyDays > 0 
+            ? `Resets in ${weeklyDays}d ${weeklyHrs}h (Sunday midnight UTC)`
+            : `Resets in ${weeklyHrs}h (Sunday midnight UTC)`;
+
+        // 5-hour rolling window calculation
+        // The window starts from the first message you send. If no message yet,
+        // fall back to session start time. We can't know the true start if the
+        // window began before this page loaded.
+        const windowStart = firstMessageTime || sessionStartTime || now;
+        const windowEnd = new Date(windowStart.getTime() + 5 * 3600 * 1000);
+        const msUntilReset = windowEnd - now;
+        
+        let fiveHrStr;
+        if (msUntilReset <= 0) {
+            fiveHrStr = 'Window has reset (no recent messages tracked)';
+        } else if (!firstMessageTime && !sessionStartTime) {
+            fiveHrStr = 'Unknown — send a message to start tracking';
+        } else {
+            const hrsLeft = Math.floor(msUntilReset / 3600000);
+            const minsLeft = Math.floor((msUntilReset % 3600000) / 60000);
+            const resetAtStr = windowEnd.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            const startLabel = firstMessageTime ? 'first message' : 'session start';
+            fiveHrStr = hrsLeft > 0
+                ? `~${hrsLeft}h ${minsLeft}m left · resets at ${resetAtStr} (from ${startLabel})`
+                : `~${minsLeft}m left · resets at ${resetAtStr} (from ${startLabel})`;
+        }
+        
+        // Update DOM
+        const projEl = document.getElementById('usage-projects-count');
+        const convoEl = document.getElementById('usage-convos-count');
+        const msgEl = document.getElementById('usage-messages-count');
+        const weeklyEl = document.getElementById('usage-weekly-tokens');
+        const fiveHourEl = document.getElementById('usage-5hr-tokens');
+        const weeklyResetEl = document.getElementById('usage-weekly-reset');
+        const fiveHrResetEl = document.getElementById('usage-5hr-reset');
+        const userEmailEl = document.getElementById('settings-user-email');
+
+        if (projEl) projEl.innerText = `${projCount} project${projCount !== 1 ? 's' : ''}`;
+        if (convoEl) convoEl.innerText = `${convoCount} conversation${convoCount !== 1 ? 's' : ''}`;
+        if (msgEl) msgEl.innerText = `${messageCount} message${messageCount !== 1 ? 's' : ''} in current session`;
+        if (weeklyEl) weeklyEl.innerText = weeklyResetStr;
+        if (fiveHourEl) fiveHourEl.innerText = fiveHrStr;
+        if (userEmailEl && currentUser) userEmailEl.innerText = currentUser.email || 'Logged in user';
+
+        globalSettingsModal.classList.remove('hidden');
+    }
+
+    if (userProfileBadge) {
+        userProfileBadge.addEventListener('click', openGlobalSettingsModal);
+    }
+    if (closeGlobalSettingsBtn) {
+        closeGlobalSettingsBtn.addEventListener('click', () => {
+            if (globalSettingsModal) globalSettingsModal.classList.add('hidden');
+        });
+    }
+    if (globalSettingsModal) {
+        globalSettingsModal.querySelector('.modal-backdrop')?.addEventListener('click', () => {
+            globalSettingsModal.classList.add('hidden');
+        });
+    }
+    if (modalLogoutBtn && logoutBtn) {
+        modalLogoutBtn.addEventListener('click', () => {
+            if (globalSettingsModal) globalSettingsModal.classList.add('hidden');
+            logoutBtn.click();
+        });
+    }
+
+    // Project Settings Listeners
+    function openProjectSettingsModal(projectName, projObj) {
+        currentEditingProject = projectName;
+        const settings = getProjectSettings(projectName);
+        if (projectAliasInput) projectAliasInput.value = settings.alias || '';
+        if (projectNotesInput) projectNotesInput.value = settings.notes || '';
+        if (projectModeSelect) projectModeSelect.value = settings.mode || 'auto';
+        if (projectInfoName) projectInfoName.innerText = projectName;
+        if (projectInfoCount) {
+            const count = projObj && projObj.conversations ? projObj.conversations.length : 0;
+            projectInfoCount.innerText = `${count} conversation${count !== 1 ? 's' : ''}`;
+        }
+        if (projectSettingsModal) projectSettingsModal.classList.remove('hidden');
+    }
+
+    if (closeProjectSettingsBtn) {
+        closeProjectSettingsBtn.addEventListener('click', () => {
+            if (projectSettingsModal) projectSettingsModal.classList.add('hidden');
+        });
+    }
+    if (projectSettingsModal) {
+        projectSettingsModal.querySelector('.modal-backdrop')?.addEventListener('click', () => {
+            projectSettingsModal.classList.add('hidden');
+        });
+    }
+    if (projectSettingsForm) {
+        projectSettingsForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            if (!currentEditingProject) return;
+            const updated = {
+                alias: projectAliasInput ? projectAliasInput.value.trim() : '',
+                notes: projectNotesInput ? projectNotesInput.value.trim() : '',
+                mode: projectModeSelect ? projectModeSelect.value : 'auto'
+            };
+            saveProjectSettings(currentEditingProject, updated);
+            
+            // Dispatch update to backend so agent.py can manipulate the desktop IDE
+            sendAction('update_project_settings', {
+                project: currentEditingProject,
+                notes: updated.notes,
+                mode: updated.mode
+            });
+            
+            if (projectSettingsModal) projectSettingsModal.classList.add('hidden');
+            
+            // Re-render UI with new project settings
+            if (lastState) updateAppUI(lastState);
         });
     }
 

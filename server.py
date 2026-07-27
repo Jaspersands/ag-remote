@@ -108,11 +108,15 @@ async def google_callback(request: Request, response: Response, code: str = None
     if code:
         try:
             token_url = "https://oauth2.googleapis.com/token"
+            scheme = request.headers.get("x-forwarded-proto", request.url.scheme)
+            host = request.headers.get("host", request.url.netloc)
+            redirect_uri = f"{scheme}://{host}/api/auth/google/callback"
+            
             data = urllib.parse.urlencode({
                 "code": code,
-                "client_id": "32555940559.apps.googleusercontent.com",
-                "client_secret": "ZmssLNjJy2998hD4CTg2ejr2",
-                "redirect_uri": "http://localhost:8020/api/auth/google/callback",
+                "client_id": os.getenv("GOOGLE_CLIENT_ID", "32555940559.apps.googleusercontent.com"),
+                "client_secret": os.getenv("GOOGLE_CLIENT_SECRET", "ZmssLNjJy2998hD4CTg2ejr2"),
+                "redirect_uri": redirect_uri,
                 "grant_type": "authorization_code"
             }).encode('utf-8')
             
@@ -488,21 +492,28 @@ JS_SCRAPER = """
             const hasFiles = !!filesHeader;
             
             // 5. Check for pending tool approvals inside this assistant response
-            const toolConfirmations = art.querySelectorAll('button');
-            toolConfirmations.forEach(btn => {
+            const toolButtons = [];
+            art.querySelectorAll('button').forEach(btn => {
                 const btnText = btn.innerText.trim();
-                if (btnText.includes('Proceed') || btnText.includes('Run') || btnText.includes('Confirm') || btnText.includes('Sandbox')) {
-                    let toolDetails = "";
-                    const codeBlock = art.querySelector('pre, code, div.font-mono');
-                    if (codeBlock) {
-                        toolDetails = codeBlock.innerText.trim();
+                if (btnText && btnText !== "Copy" && !btnText.includes('Thumbs')) {
+                    if (btnText.match(/allow|proceed|run|always|sandbox|cancel|reject|deny|approve|execute/i)) {
+                        toolButtons.push(btnText);
                     }
-                    pending_tool = {
-                        text: toolDetails || "Pending tool approval",
-                        type: btnText
-                    };
                 }
             });
+            
+            if (toolButtons.length > 0) {
+                let toolDetails = "";
+                const codeBlock = art.querySelector('pre, code, div.font-mono');
+                if (codeBlock) {
+                    toolDetails = codeBlock.innerText.trim();
+                }
+                pending_tool = {
+                    text: toolDetails || "Pending tool approval",
+                    buttons: toolButtons,
+                    articleIndex: artIdx
+                };
+            }
             
             if (userText) {
                 messages.push({ sender: 'user', text: userText, articleIndex: artIdx });
@@ -782,7 +793,8 @@ async def cdp_monitor_task():
                                     "projects": result.get("projects", []),
                                     "conversations": result.get("conversations", []),
                                     "messages": result.get("messages", []),
-                                    "pending_tool": result.get("pending_tool")
+                                    "pending_tool": result.get("pending_tool"),
+                                    "queued_messages": result.get("queued_messages", [])
                                 }
                                 
                                 # Reconstruct details from transcript
@@ -806,7 +818,7 @@ async def cdp_monitor_task():
                                 
                                 # Compare states to avoid redundant broadcasts
                                 state_changed = False
-                                for key in ["url", "title", "projects", "conversations", "messages", "pending_tool"]:
+                                for key in ["url", "title", "projects", "conversations", "messages", "pending_tool", "queued_messages"]:
                                     if global_state.app_state.get(key) != new_state.get(key):
                                         state_changed = True
                                         break
@@ -923,33 +935,20 @@ async def action_send_message(text: str):
     """
     return await execute_action(js)
 
-async def action_approve_tool():
-    js = """
-    (() => {
-        const btn = Array.from(document.querySelectorAll('button')).find(b => 
-            b.innerText.includes('Proceed') || b.innerText.includes('Run') || b.innerText.includes('Confirm')
-        );
-        if (btn) {
-            btn.click();
-            return { success: true };
-        }
-        return { error: "Proceed button not found" };
-    })()
-    """
-    return await execute_action(js)
-
-async def action_reject_tool():
-    js = """
-    (() => {
-        const btn = Array.from(document.querySelectorAll('button')).find(b => 
-            b.innerText.includes('Cancel') || b.innerText.includes('Reject')
-        );
-        if (btn) {
-            btn.click();
-            return { success: true };
-        }
-        return { error: "Cancel button not found" };
-    })()
+async def action_click_tool_button(article_index: int, button_text: str):
+    js = f"""
+    (() => {{
+        const arts = document.querySelectorAll('article');
+        if ({article_index} < arts.length) {{
+            const btns = Array.from(arts[{article_index}].querySelectorAll('button'));
+            const btn = btns.find(b => b.innerText.trim() === `{button_text}`);
+            if (btn) {{
+                btn.click();
+                return {{ success: true }};
+            }}
+        }}
+        return {{ error: "Button not found" }};
+    }})()
     """
     return await execute_action(js)
 
@@ -1180,10 +1179,8 @@ async def websocket_client(websocket: WebSocket):
                 res = None
                 if action == "send_message":
                     res = await action_send_message(payload.get("text", ""))
-                elif action == "approve_tool":
-                    res = await action_approve_tool()
-                elif action == "reject_tool":
-                    res = await action_reject_tool()
+                elif action == "click_tool_button":
+                    res = await action_click_tool_button(payload.get("articleIndex", 0), payload.get("buttonText", ""))
                 elif action == "new_conversation":
                     res = await action_new_conversation()
                 elif action == "select_project":
@@ -1224,45 +1221,31 @@ async def startup_event():
 async def cloudflare_tunnel_task():
     print("[+] Starting Cloudflare Tunnel...")
     process = subprocess.Popen(
-        ["/usr/local/bin/cloudflared", "tunnel", "--url", "http://localhost:8020"],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True
+        ["/usr/local/bin/cloudflared", "tunnel", "run", "AG-Remote"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL
     )
     
-    # Parse stderr of cloudflared to find the .trycloudflare.com URL
-    tunnel_url = None
-    while True:
-        line = process.stderr.readline()
-        if not line:
-            break
-        print(f"[cloudflared] {line.strip()}")
+    tunnel_url = "https://remote.jaspersands.com"
+    if tunnel_url:
+        print("\n" + "="*60)
+        print(f"[+] CLOUDFLARE TUNNEL ONLINE!")
+        print(f"[+] Public URL: {tunnel_url}")
+        print("="*60 + "\n")
+        # Print QR code in terminal and save as PNG
+        qr = qrcode.QRCode(version=1, box_size=10, border=4)
+        qr.add_data(tunnel_url)
+        qr.make(fit=True)
         
-        # Look for the URL match
-        match = re.search(r"https://[a-zA-Z0-9\-]+\.trycloudflare\.com", line)
-        if match:
-            tunnel_url = match.group(0)
-            print("\n" + "="*60)
-            print(f"[+] CLOUDFLARE TUNNEL ONLINE!")
-            print(f"[+] Public URL: {tunnel_url}")
-            print("="*60 + "\n")
-            
-            # Print QR code in terminal and save as PNG
-            qr = qrcode.QRCode(version=1, box_size=10, border=4)
-            qr.add_data(tunnel_url)
-            qr.make(fit=True)
-            
-            # Save PNG
-            img = qr.make_image(fill_color="black", back_color="white")
-            img.save("public/qr.png")
-            
-            f = io.StringIO()
-            qr.print_ascii(out=f)
-            print("[+] Scan this QR Code with your iPhone to open AG-Remote:")
-            print(f.getvalue())
-            print("[+] Saved QR code PNG to public/qr.png")
-            break
-        await asyncio.sleep(0.1)
+        # Save PNG
+        img = qr.make_image(fill_color="black", back_color="white")
+        img.save("public/qr.png")
+        
+        f = io.StringIO()
+        qr.print_ascii(out=f)
+        print("[+] Scan this QR Code with your iPhone to open AG-Remote:")
+        print(f.getvalue())
+        print("[+] Saved QR code PNG to public/qr.png")
 
 # Serve the static frontend assets from 'public/' directory
 app.mount("/", StaticFiles(directory="public", html=True), name="public")
