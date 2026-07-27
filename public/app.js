@@ -1054,6 +1054,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const googleLoginBtn = document.getElementById('google-login-btn');
     if (googleLoginBtn) {
         googleLoginBtn.addEventListener('click', () => {
+            alert("Button clicked! Redirecting to Google...");
             hideAuthError();
             const clientId = globalGoogleClientId || '367177401520-4jg61r571kgefpidfn19nff02qo8ik50.apps.googleusercontent.com';
             const redirectUri = window.location.origin + '/api/auth/google/callback';
