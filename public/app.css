@@ -473,6 +473,8 @@ body, html {
     gap: 12px;
     max-width: 600px;
     margin: 0 auto;
+    width: 100%;
+    overflow: hidden;
     animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
@@ -494,8 +496,11 @@ body, html {
     background-color: rgba(0, 0, 0, 0.3);
     padding: 10px;
     border-radius: 8px;
-    overflow-x: auto;
     max-height: 120px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    overflow-y: auto;
+    overflow-x: hidden;
 }
 
 .tool-card-actions {
