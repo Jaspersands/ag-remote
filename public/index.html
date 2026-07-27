@@ -12,7 +12,7 @@
     <!-- Google Identity Services SDK -->
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <!-- Stylesheet -->
-    <link rel="stylesheet" href="app.css?v=10">
+    <link rel="stylesheet" href="app.css?v=11">
 </head>
 <body>
     <!-- App Container -->
@@ -163,11 +163,19 @@
 
     <!-- Auth Lock Screen Overlay -->
     <div id="auth-lock-screen" class="auth-overlay">
+        <!-- Animated Background Orbs -->
+        <div class="orb orb-1"></div>
+        <div class="orb orb-2"></div>
+        <div class="orb orb-3"></div>
+
         <div class="auth-card">
-            <div class="auth-logo">🪐</div>
-            <div class="auth-icon">🔒</div>
-            <h2>AG-Remote</h2>
-            <p>Sign in to access your workspace securely.</p>
+            <div class="auth-logo-wrapper">
+                <div class="auth-logo">🪐</div>
+                <div class="auth-logo-glow"></div>
+            </div>
+            
+            <h2 class="auth-title">AG-Remote</h2>
+            <p class="auth-subtitle">Securely access your workspace from anywhere.</p>
             
             <!-- Auth Error Display -->
             <div id="auth-error-msg" class="auth-error hidden"></div>
@@ -183,6 +191,10 @@
                     </svg>
                     <span>Sign in with Google</span>
                 </a>
+            </div>
+            
+            <div class="auth-footer">
+                Powered by <strong>Antigravity</strong>
             </div>
         </div>
     </div>
@@ -376,6 +388,6 @@
         </div>
     </div>
     <!-- Scripts -->
-    <script src="app.js?v=10"></script>
+    <script src="app.js?v=11"></script>
 </body>
 </html>
