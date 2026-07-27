@@ -24,9 +24,21 @@ document.addEventListener('DOMContentLoaded', () => {
     const chatForm = document.getElementById('chat-form');
     const chatInput = document.getElementById('chat-input');
     const sendBtn = document.getElementById('send-btn');
+    const stopBtn = document.getElementById('stop-btn');
     const attachFileBtn = document.getElementById('attach-file-btn');
     const fileInput = document.getElementById('file-input');
     const attachmentsPreview = document.getElementById('attachments-preview');
+
+    // Model Selector
+    const modelSelectorBtn = document.getElementById('model-selector-btn');
+    const currentModelName = document.getElementById('current-model-name');
+    const modelDropdown = document.getElementById('model-dropdown');
+    const modelList = document.getElementById('model-list');
+    
+    // Queued Messages
+    const queuedContainer = document.getElementById('queued-messages-container');
+    const queuedCount = document.getElementById('queued-count');
+    const queuedList = document.getElementById('queued-messages-list');
 
     let pendingFiles = [];
 
