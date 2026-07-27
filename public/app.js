@@ -1053,14 +1053,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const googleLoginBtn = document.getElementById('google-login-btn');
     if (googleLoginBtn) {
+        const clientId = globalGoogleClientId || '367177401520-4jg61r571kgefpidfn19nff02qo8ik50.apps.googleusercontent.com';
+        const redirectUri = window.location.origin + '/api/auth/google/callback';
+        const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=openid%20email%20profile&access_type=offline&prompt=select_account`;
+        
+        googleLoginBtn.href = authUrl;
+        
         googleLoginBtn.addEventListener('click', () => {
-            alert("Button clicked! Redirecting to Google...");
             hideAuthError();
-            const clientId = globalGoogleClientId || '367177401520-4jg61r571kgefpidfn19nff02qo8ik50.apps.googleusercontent.com';
-            const redirectUri = window.location.origin + '/api/auth/google/callback';
-            const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=openid%20email%20profile&access_type=offline&prompt=select_account`;
-            
-            window.location.href = authUrl;
         });
     }
 
